@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>邮箱验证｜学习计划</title>
+  <link rel="stylesheet" href="auth-pages.css">
+</head>
+<body>
+  <main class="auth-card">
+    <div class="auth-logo">计</div>
+    <h1 id="title">正在确认邮箱</h1>
+    <p>正在安全地处理邮件中的确认链接。</p>
+    <div class="status" id="status" role="status" aria-live="polite">请稍候……</div>
+    <div class="actions">
+      <a class="button" id="continueLink" href="./" hidden>进入学习计划</a>
+      <a class="button secondary" id="retryLink" href="./" hidden>返回登录</a>
+    </div>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    (()=>{
+      "use strict";
+      const URL="https://dkaoagflpimnpovuvuhk.supabase.co";
+      const KEY="sb_publishable_lC-29jF4VXPw1HADXTUgGA_FTxwpEkB";
+      const status=document.querySelector("#status"),title=document.querySelector("#title");
+      const continueLink=document.querySelector("#continueLink"),retryLink=document.querySelector("#retryLink");
+      const initialSearch=new URLSearchParams(location.search),initialHash=new URLSearchParams(location.hash.slice(1));
+      const hasAuthHint=initialSearch.has("code")||initialSearch.has("token_hash")||initialHash.has("access_token");
+      const client=window.supabase?.createClient(URL,KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+      let finished=false;
+      function finish(ok,message){
+        if(finished)return;finished=true;title.textContent=ok?"邮箱确认成功":"邮箱确认失败";
+        status.textContent=message;status.className=`status ${ok?"success":"error"}`;
+        (ok?continueLink:retryLink).hidden=false;
+        if(ok)history.replaceState({},document.title,location.pathname);
+      }
+      async function check(){
+        const error=initialSearch.get("error_description")||initialHash.get("error_description");
+        if(error)return finish(false,error);
+        if(!hasAuthHint)return finish(false,"当前页面没有有效的邮箱确认信息，请重新打开邮件中的确认链接。");
+        if(!client)return finish(false,"验证组件没有加载成功，请检查网络后重试。");
+        client.auth.onAuthStateChange((event,session)=>{
+          if(session&&(event==="SIGNED_IN"||event==="INITIAL_SESSION"))finish(true,"邮箱已经确认，可以进入学习计划并继续使用账号。")
+        });
+        const {data, error:sessionError}=await client.auth.getSession();
+        if(sessionError)return finish(false,sessionError.message);
+        if(data.session)return finish(true,"邮箱已经确认，可以进入学习计划并继续使用账号。");
+        setTimeout(()=>finish(false,"确认链接无效或已经过期，请返回登录页面重新发送。"),5000);
+      }
+      check();
+    })();
+  </script>
+</body>
+</html>

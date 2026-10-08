@@ -4,6 +4,8 @@
 const SUPABASE_URL="https://dkaoagflpimnpovuvuhk.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_lC-29jF4VXPw1HADXTUgGA_FTxwpEkB";
 const SITE_URL="https://piersb1.github.io/StudyPlanner/";
+const AUTH_CALLBACK_URL=`${SITE_URL}auth-callback.html`;
+const RESET_PASSWORD_URL=`${SITE_URL}reset-password.html`;
 const TABLE="planner_states";
 const PROFILE_TABLE="profiles";
 const AVATAR_BUCKET="avatars";
@@ -238,7 +240,7 @@ async function register(){
  if(password.length<8)return setMessage($("#authMessage"),"密码至少需要 8 个字符。","error");
  if(registerAvatarBlob){try{localStorage.setItem(pendingAvatarKey(email),await blobToDataUrl(registerAvatarBlob))}catch{return setMessage($("#authMessage"),"无法暂存头像，请重新选择图片。","error")}}
  setMessage($("#authMessage"),"正在创建账号……");
- const {data,error}=await client.auth.signUp({email,password,options:{emailRedirectTo:SITE_URL,data:{username}}});
+ const {data,error}=await client.auth.signUp({email,password,options:{emailRedirectTo:AUTH_CALLBACK_URL,data:{username}}});
  if(error)return setMessage($("#authMessage"),`注册失败：${error.message}`,"error");
  if(data.session)setMessage($("#authMessage"),"注册成功，正在登录。","success");
  else setMessage($("#authMessage"),"注册邮件已发送。请打开邮件完成验证，再回来登录。","success");
@@ -247,7 +249,7 @@ async function forgotPassword(){
  if(!client)return;const email=$("#authEmail").value.trim();
  if(!email)return setMessage($("#authMessage"),"请先填写需要找回密码的邮箱。","error");
  setMessage($("#authMessage"),"正在发送重置邮件……");
- const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:SITE_URL});
+ const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:RESET_PASSWORD_URL});
  setMessage($("#authMessage"),error?`发送失败：${error.message}`:"如果该邮箱已注册，重置邮件将会发送。",error?"error":"success");
 }
 async function updatePassword(event){
