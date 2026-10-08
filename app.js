@@ -461,7 +461,7 @@ function exportICS(){
 function importJSON(file){
  const r=new FileReader();r.onload=()=>{try{const data=JSON.parse(r.result);if(!data.events||!Array.isArray(data.events))throw Error();if(!confirm("导入会替换当前全部本地数据，继续吗？"))return;snapshot();data.events=data.events.filter(e=>e.type!=="flex").map(normalizeSubject);data.version=2;state=data;save();toast("备份已导入")}catch{toast("文件不是有效的学习计划备份")}};r.readAsText(file);
 }
-function reset(){if(!confirm("恢复虚构演示计划？当前浏览器中的修改会被清除，请先导出备份。"))return;snapshot();state=defaultState();$("#settingsDialog").close();save();toast("已恢复演示计划")}
+function reset(){if(!confirm("确认清空当前浏览器中的全部计划？此操作无法直接恢复，请先导出备份。"))return;snapshot();state=defaultState();$("#settingsDialog").close();save();toast("已清空全部计划")}
 
 function bind(){
  $$('dialog button[value="cancel"]').forEach(b=>b.onclick=()=>b.closest("dialog").close());
