@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="个人学习计划工具。数据保存在当前浏览器中，不会上传服务器。请定期导出备份。">
+  <title>学习计划</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23285f86'/%3E%3Cpath d='M18 18h28v7H18zm0 12h20v7H18zm0 12h14v7H18z' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">计</span><div><strong>学习计划</strong><small title="数据保存在当前浏览器中，不会上传服务器。请定期导出备份。">数据保存在当前浏览器，不会上传</small></div></div>
+    <nav class="view-tabs" aria-label="页面">
+      <button class="tab active" data-view="week">周计划</button>
+      <button class="tab" data-view="goals">周目标</button>
+      <button class="tab" data-view="list">全部计划</button>
+      <button class="tab" data-view="visual">可视化</button>
+    </nav>
+    <div class="top-actions">
+      <button class="ghost" id="undoBtn" title="撤销 Ctrl+Z" disabled>撤销</button>
+      <button class="ghost" id="todayBtn">今天</button>
+      <button class="ghost" id="settingsBtn">设置</button>
+      <button class="ghost" id="manageSubjectsBtn">管理科目</button>
+      <button class="primary" id="createBtn">＋ 新建时间块</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="weekView" class="view active">
+      <div class="planner-toolbar">
+        <div class="week-nav">
+          <button class="icon-btn" id="prevWeek" aria-label="上一周">‹</button>
+          <button class="icon-btn" id="nextWeek" aria-label="下一周">›</button>
+          <h1 id="weekLabel"></h1>
+        </div>
+        <div class="search-row">
+          <label class="days-picker">同时看<select id="daysShown" aria-label="同时显示天数"><option value="7">7天</option><option value="3">3天</option></select></label>
+          <label class="today-first"><input id="todayFirst" type="checkbox">前置今天</label>
+          <input id="searchInput" type="search" placeholder="搜索标题或简介">
+          <select id="subjectFilter" aria-label="筛选科目"><option value="">全部科目</option></select>
+        </div>
+      </div>
+
+      <div class="planner-summary-row">
+        <div class="side-switch-zone"><button type="button" id="sideSwitchBtn" class="side-switch-btn">移到右侧　→</button></div>
+        <div class="summary-strip" id="summaryStrip"></div>
+      </div>
+
+      <div class="planner-shell">
+        <aside class="legend-panel" id="sidePanel">
+          <section class="sidebar-section sidebar-filters">
+            <h2>显示</h2>
+            <label><input type="checkbox" data-filter="class" checked><span class="dot class"></span>固定课程</label>
+            <label><input type="checkbox" data-filter="study" checked><span class="dot study"></span>学习计划</label>
+            <label><input type="checkbox" data-filter="completed" checked><span class="dot completed"></span>完成记录</label>
+          </section>
+          <section class="sidebar-section sidebar-hours">
+            <h2>本周学时</h2>
+            <div id="weekHours" class="week-hours"></div>
+          </section>
+          <section class="sidebar-section backlog-section" id="backlogDropZone">
+            <div class="backlog-head">
+              <h2>拖欠区 <span id="backlogCount">0</span></h2>
+              <select id="backlogSort" class="backlog-sort" aria-label="拖欠任务排序" title="选择拖欠任务排序方式">
+                <option value="oldest">最早在上</option>
+                <option value="newest">最近在上</option>
+                <option value="schedule">按原日期</option>
+              </select>
+            </div>
+            <div class="backlog-list" id="backlogList"></div>
+          </section>
+        </aside>
+        <div class="calendar-wrap" id="calendarWrap">
+          <div class="calendar-head" id="calendarHead"></div>
+          <div class="calendar-body" id="calendarBody">
+            <div class="time-axis" id="timeAxis"></div>
+            <div class="days-grid" id="daysGrid"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="goalsView" class="view">
+      <div class="page-head">
+        <div><h1>周目标</h1><p id="goalWeekLabel"></p></div>
+        <div class="goal-head-actions">
+          <div class="goal-week-picker">
+            <button class="icon-btn" id="goalPrevWeek" type="button" aria-label="上一周">‹</button>
+            <label>选择日期<input id="goalWeekPicker" type="date" aria-label="选择要查看的周"></label>
+            <button class="icon-btn" id="goalNextWeek" type="button" aria-label="下一周">›</button>
+            <button class="ghost" id="goalThisWeek" type="button">本周</button>
+          </div>
+          <button class="primary" id="addGoalBtn">＋ 添加目标</button>
+        </div>
+      </div>
+      <div class="goal-layout">
+        <div>
+          <h2>本周总目标</h2>
+          <div id="goalList" class="goal-list"></div>
+        </div>
+        <aside>
+          <h2>按科目统计</h2>
+          <div id="subjectStats"></div>
+          <h2>本周回顾</h2>
+          <textarea id="weekReflection" rows="8" placeholder="本周完成了什么？哪里需要顺延？"></textarea>
+        </aside>
+      </div>
+    </section>
+
+    <section id="listView" class="view">
+      <div class="page-head">
+        <div><h1>全部计划</h1><p>查看、搜索和整理学习计划。</p></div>
+        <div class="search-row">
+          <input id="listSearch" type="search" placeholder="搜索全部计划">
+          <select id="listStatus"><option value="">全部状态</option><option value="pending">未完成</option><option value="completed">已完成</option></select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table><thead><tr><th>日期</th><th>时间</th><th>名称</th><th>科目</th><th>类型</th><th>状态</th></tr></thead><tbody id="eventTable"></tbody></table>
+      </div>
+    </section>
+
+    <section id="visualView" class="view">
+      <div class="page-head visual-head">
+        <div><h1>学习时长可视化</h1><p id="visualRangeLabel"></p></div>
+        <div class="visual-controls">
+          <div class="mode-switch" aria-label="图表范围">
+            <button type="button" data-chart-mode="week">按周看</button>
+            <button type="button" data-chart-mode="month">按月看</button>
+          </div>
+          <button class="icon-btn" id="visualPrev" type="button" aria-label="上一周期">‹</button>
+          <button class="ghost" id="visualCurrent" type="button">本期</button>
+          <button class="icon-btn" id="visualNext" type="button" aria-label="下一周期">›</button>
+        </div>
+      </div>
+      <div class="visual-wrap">
+        <div class="visual-summary" id="visualSummary"></div>
+        <div class="study-chart" id="studyChart"></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="eventDialog">
+    <form method="dialog" id="eventForm">
+      <div class="dialog-head"><div><small id="eventMode">时间块</small><h2 id="eventDialogTitle">新建时间块</h2></div><button type="button" class="close" value="cancel" aria-label="关闭">×</button></div>
+      <input type="hidden" id="eventId">
+      <div class="form-grid">
+        <label class="span-2">标题<input id="titleInput" required maxlength="100"></label>
+        <label>类型<select id="typeInput"><option value="study">学习计划</option><option value="class">固定课程</option></select></label>
+        <label>科目<select id="subjectInput"></select></label>
+        <label>日期<input id="dateInput" type="date" required></label>
+        <div class="time-pair"><label>开始<input id="startInput" type="time" step="60" required></label><label>结束<input id="endInput" type="time" step="60" required></label></div>
+        <label>重要性<select id="importanceInput"><option value="normal">普通</option><option value="high">重点</option><option value="low">低优先级</option></select></label>
+        <label>重复<select id="repeatInput"><option value="none">不重复</option><option value="weekdays">每个工作日</option><option value="weekly">每周同一天</option></select></label>
+        <label id="untilLabel">重复至<input id="untilInput" type="date"></label>
+        <label id="scopeWrap" hidden>修改范围<select id="scopeInput"><option value="one">只改这一次</option><option value="future">这次及以后</option><option value="series">整个重复计划</option></select></label>
+        <label class="span-2">简介<textarea id="descriptionInput" rows="6" placeholder="具体学什么、完成标准、实际记录"></textarea></label>
+        <fieldset class="span-2 record-box" id="recordBox">
+          <legend>完成记录</legend>
+          <label class="check"><input id="completedInput" type="checkbox"> 已完成</label>
+          <label>学习记录<textarea id="notesInput" rows="3" placeholder="实际完成内容、错误和下次接续位置"></textarea></label>
+        </fieldset>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="danger ghost" id="deleteBtn">删除</button>
+        <button type="button" class="ghost" id="duplicateBtn">复制</button>
+        <button type="button" class="ghost" id="reviewBtn">生成间隔复习</button>
+        <span></span>
+        <button type="button" value="cancel" class="ghost">取消</button>
+        <button type="submit" class="primary">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="goalDialog">
+    <form method="dialog" id="goalForm">
+      <div class="dialog-head"><h2>添加本周目标</h2><button type="button" class="close" value="cancel">×</button></div>
+      <label>目标<input id="goalTitle" required placeholder="例如：完成活动图综合练习"></label>
+      <label>科目<input id="goalSubject" placeholder="UML"></label>
+      <label>计划用时（分钟）<input id="goalMinutes" type="number" min="0" step="5" value="60"></label>
+      <div class="dialog-actions"><span></span><button type="button" value="cancel" class="ghost">取消</button><button type="submit" class="primary">添加</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="addEventSubjectDialog" aria-labelledby="addEventSubjectTitle">
+    <form id="addEventSubjectForm">
+      <div class="dialog-head"><h2 id="addEventSubjectTitle">添加科目</h2><button type="button" class="close" value="cancel" aria-label="关闭">×</button></div>
+      <label>科目名称<input id="eventNewSubjectInput" required maxlength="60" placeholder="输入新科目名称"></label>
+      <div class="subject-delete-actions"><button type="button" class="ghost" value="cancel">取消</button><button type="submit" class="primary">添加</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="subjectsDialog" aria-labelledby="subjectsDialogTitle">
+    <div class="subject-manager">
+      <div class="dialog-head"><h2 id="subjectsDialogTitle">管理科目</h2><button type="button" class="close" id="closeSubjectsBtn" aria-label="关闭">×</button></div>
+      <form id="addSubjectForm" class="subject-add"><input id="newSubjectInput" required maxlength="60" placeholder="输入新科目名称" aria-label="新科目名称"><button type="submit" class="primary">添加</button></form>
+      <div id="managedSubjectList" class="managed-subject-list"></div>
+    </div>
+  </dialog>
+  <dialog id="deleteSubjectDialog" aria-labelledby="deleteSubjectTitle">
+    <div class="subject-manager">
+      <div class="dialog-head"><h2 id="deleteSubjectTitle">删除科目</h2><button type="button" class="close" id="cancelSubjectDeleteClose" aria-label="关闭">×</button></div>
+      <p id="deleteSubjectMessage"></p>
+      <div class="subject-delete-actions"><button type="button" class="ghost" id="cancelSubjectDelete">取消</button><button type="button" class="ghost" id="keepSubjectEventsBtn">仅删除科目</button><button type="button" class="danger" id="cascadeSubjectEventsBtn">级联删除</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="settingsDialog">
+    <form method="dialog" id="settingsForm">
+      <div class="dialog-head"><div><small>浏览器设置</small><h2>目标与数据</h2></div><button type="button" class="close" value="cancel">×</button></div>
+      <h3>每日学习上限</h3>
+      <div class="target-grid" id="targetGrid"></div>
+      <label class="check"><input id="capWarning" type="checkbox" checked> 超出上限时提醒</label>
+      <h3>数据备份</h3>
+      <div class="backup-actions">
+        <button type="button" class="ghost" id="exportJson">导出完整备份</button>
+        <button type="button" class="ghost" id="exportCsv">导出CSV</button>
+        <button type="button" class="ghost" id="exportIcs">导出ICS日历</button>
+        <button type="button" class="ghost" id="importBtn">导入备份</button>
+        <input id="importFile" type="file" accept=".json" hidden>
+      </div>
+      <p class="muted">数据保存在当前浏览器中，不会上传服务器。请定期导出备份。</p>
+      <div class="dialog-actions"><button type="button" class="danger ghost" id="resetBtn">恢复演示计划</button><span></span><button type="button" value="cancel" class="ghost">取消</button><button type="submit" class="primary">保存设置</button></div>
+    </form>
+  </dialog>
+
+  <div id="eventPreview" role="tooltip"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="seed-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

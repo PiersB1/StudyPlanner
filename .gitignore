@@ -1,0 +1,12 @@
+# Keep personal exports and backups out of the public repository.
+*.json
+*.csv
+*.ics
+*.zip
+*.bak
+*.log
+backups/
+private/
+qa-*
+.DS_Store
+Thumbs.db
