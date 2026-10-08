@@ -48,7 +48,7 @@ function ensureSubjects(){
  if(!Array.isArray(state.subjects))state.subjects=[...new Set([...SUBJECTS,...state.events.map(e=>e.subject),...(state.goals||[]).map(g=>g.subject)].filter(s=>s&&s!=="未分类"))];
  state.subjects=[...new Set(state.subjects.filter(s=>typeof s==="string"&&s.trim()&&s!=="未分类").map(s=>s.trim()))];
 }
-function save(render=true){ensureSubjects();localStorage.setItem(STORE,JSON.stringify(state));if(render)renderAll()}
+function save(render=true){ensureSubjects();localStorage.setItem(STORE,JSON.stringify(state));window.StudyPlannerCloud?.queueSave(state);if(render)renderAll()}
 function snapshot(){history.push(JSON.stringify(state));if(history.length>30)history.shift();$("#undoBtn").disabled=false}
 function undo(){if(!history.length)return;state=JSON.parse(history.pop());$("#undoBtn").disabled=!history.length;save()}
 function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove("show"),2200)}
@@ -502,5 +502,27 @@ function bind(){
  $("#exportJson").onclick=exportJSON;$("#exportCsv").onclick=exportCSV;$("#exportIcs").onclick=exportICS;$("#importBtn").onclick=()=>$("#importFile").click();$("#importFile").onchange=e=>e.target.files[0]&&importJSON(e.target.files[0]);$("#resetBtn").onclick=reset;
 }
 function toggleUntil(){$("#untilLabel").hidden=$("#repeatInput").value==="none"}
+function replaceStateFromCloud(data){
+ if(!data||!Array.isArray(data.events))throw Error("云端计划格式无效");
+ state=JSON.parse(JSON.stringify(data));
+ state.events=state.events.filter(e=>e.type!=="flex").map(normalizeSubject);
+ state.version=2;
+ state.settings ||= defaultState().settings;
+ state.settings.targets ||= [...defaultState().settings.targets];
+ state.settings.dateTargets ||= {};
+ state.goals ||= [];
+ state.reflections ||= {};
+ ensureSubjects();history=[];$("#undoBtn").disabled=true;
+ localStorage.setItem(STORE,JSON.stringify(state));
+ renderAll();
+}
+function emptyState(){return defaultState()}
 load();bind();renderAll();
+window.StudyPlannerCloud?.init({
+ getState:()=>JSON.parse(JSON.stringify(state)),
+ replaceState:replaceStateFromCloud,
+ emptyState,
+ hasContent:()=>state.events.length>0||state.goals.length>0||Object.values(state.reflections).some(Boolean),
+ toast
+});
 })();
