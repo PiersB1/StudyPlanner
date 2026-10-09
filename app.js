@@ -107,6 +107,7 @@ function renderNav(){
 function renderSidebarPosition(){
  $("#weekView").classList.toggle("sidebar-right",sidebarRight);
  $("#sideSwitchBtn").textContent=sidebarRight?"←　移到左侧":"移到右侧　→";
+ syncSummaryColumns();
 }
 function renderSubjects(){
  const values=[...state.subjects,"未分类"].sort();
@@ -247,6 +248,14 @@ function renderWeek(){
  renderNowLine();
  renderSummary();
  renderBacklog();
+ syncSummaryColumns();
+}
+function syncSummaryColumns(){
+ const wrap=$("#calendarWrap"),head=$("#calendarHead"),viewport=$("#summaryViewport");
+ if(!wrap.clientWidth||!head.offsetWidth)return;
+ viewport.style.width=wrap.clientWidth+"px";
+ $("#summaryStrip").style.width=head.getBoundingClientRect().width+"px";
+ viewport.scrollLeft=wrap.scrollLeft;
 }
 function visibleStart(){return todayFirst?rangeStart:(viewDays===7?weekStart:rangeStart)}
 function importanceVisible(e){return $(`[data-importance-filter="${eventImportance(e)}"]`)?.checked!==false}
@@ -570,6 +579,8 @@ function reset(){if(!confirm("确认清空当前浏览器中的全部计划？�
 function bind(){
  renderEventColorPicker();
  renderSubjectColorPicker();
+ $("#calendarWrap").addEventListener("scroll",syncSummaryColumns,{passive:true});
+ new ResizeObserver(syncSummaryColumns).observe($("#calendarWrap"));
  $$('dialog button[value="cancel"]').forEach(b=>b.onclick=()=>b.closest("dialog").close());
  $("#addEventSubjectForm").onsubmit=addEventSubject;
  $$(".tab").forEach(b=>b.onclick=()=>{view=b.dataset.view;renderAll()});

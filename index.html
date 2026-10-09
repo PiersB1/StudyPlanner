@@ -6,7 +6,7 @@
   <meta name="description" content="个人学习计划工具。未登录时保存在当前浏览器，登录后可跨设备云同步。">
   <title>学习计划</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23285f86'/%3E%3Cpath d='M18 18h28v7H18zm0 12h20v7H18zm0 12h14v7H18z' fill='white'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=20261009-importance1">
+  <link rel="stylesheet" href="styles.css?v=20261009-aligned1">
 </head>
 <body>
   <header class="topbar">
@@ -46,7 +46,7 @@
 
       <div class="planner-summary-row">
         <div class="side-switch-zone"><button type="button" id="sideSwitchBtn" class="side-switch-btn">移到右侧　→</button></div>
-        <div class="summary-strip" id="summaryStrip"></div>
+        <div class="summary-viewport" id="summaryViewport"><div class="summary-strip" id="summaryStrip"></div></div>
       </div>
 
       <div class="planner-shell">
@@ -331,6 +331,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="cloud-sync.js"></script>
-  <script src="app.js?v=20261009-importance1"></script>
+  <script src="app.js?v=20261009-aligned1"></script>
 </body>
 </html>
