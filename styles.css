@@ -29,6 +29,9 @@ input,select,textarea{width:100%;border:1px solid #bdcbd5;border-radius:7px;back
 #weekView.sidebar-right .planner-summary-row{grid-template-columns:minmax(0,1fr) 210px}
 #weekView.sidebar-right .planner-summary-row .side-switch-zone{grid-column:2;grid-row:1;border-right:0;border-left:1px solid var(--line)}
 .summary-viewport{overflow:hidden;min-width:0}
+#goalForm [hidden]{display:none}
+#goalForm .dialog-actions{display:flex;justify-content:flex-end}#goalForm .dialog-actions>span{flex:1}
+.auto-goal,.goal-card{cursor:pointer}.auto-goal:focus-visible,.goal-card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.auto-goal>div,.goal-card>div{min-width:0}.auto-goal h3,.goal-card h3{overflow-wrap:anywhere}.auto-goal p,.goal-card p{font-size:.78rem;line-height:1.55;margin:0 0 4px;color:#334d5e;white-space:pre-wrap;overflow-wrap:anywhere}#goalForm label{margin-top:12px}#goalForm select,#goalForm textarea{margin-top:5px;font-weight:400}
 #weekView.sidebar-right .planner-summary-row .summary-viewport{grid-column:1;grid-row:1}
 #weekView.sidebar-right .planner-shell{grid-template-columns:minmax(0,1fr) 210px}
 #weekView.sidebar-right .legend-panel{grid-column:2;grid-row:1;border-right:0;border-left:1px solid var(--line)}

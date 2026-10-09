@@ -43,6 +43,7 @@ const defaultState=()=>{
  version:2,
  events,
  goals:[],
+ autoGoalEdits:[],
  reflections:{},
  settings:{targets:[120,120,120,120,120,120,120],dateTargets:{},warn:true}
 }};
@@ -65,6 +66,7 @@ function ensureSubjects(){
  if(!Array.isArray(state.subjects))state.subjects=[...new Set([...SUBJECTS,...state.events.map(e=>e.subject),...(state.goals||[]).map(g=>g.subject)].filter(s=>s&&s!=="未分类"))];
  state.subjects=[...new Set(state.subjects.filter(s=>typeof s==="string"&&s.trim()&&s!=="未分类").map(s=>s.trim()))];
  if(!Array.isArray(state.subjectDefaults))state.subjectDefaults=[];
+ if(!Array.isArray(state.autoGoalEdits))state.autoGoalEdits=[];
 }
 function save(render=true){ensureSubjects();localStorage.setItem(STORE,JSON.stringify(state));window.StudyPlannerCloud?.queueSave(state);if(render)renderAll()}
 function snapshot(){history.push(JSON.stringify(state));if(history.length>30)history.shift();$("#undoBtn").disabled=false}
@@ -181,6 +183,7 @@ function applySubjectChange(keepPersonal){
   if(change.importanceChanged&&(!keepPersonal||!e.importanceCustomized)){e.importance=change.importance;e.importanceCustomized=false}
  });
  state.goals.forEach(g=>{if(g.subject===change.oldName)g.subject=change.name});
+ state.autoGoalEdits.forEach(g=>{if(g.subject===change.oldName)g.subject=change.name});
  if(previousSubjectSelection===change.oldName)previousSubjectSelection=change.name;
  if($("#subjectFilter").value===change.oldName)$("#subjectFilter").value="";
  pendingSubjectChange=null;editingSubject=null;$("#subjectApplyDialog").close();$("#subjectSettingsDialog").close();save();toast("科目设置已保存");
@@ -213,6 +216,7 @@ function deleteManagedSubject(cascade){
  if(cascade)state.events=state.events.filter(e=>e.subject!==name);
  else state.events.forEach(e=>{if(e.subject===name)e.subject="未分类"});
  state.goals.forEach(g=>{if(g.subject===name)g.subject="未分类"});
+ state.autoGoalEdits.forEach(g=>{if(g.subject===name)g.subject="未分类"});
  cancelSubjectDelete();save();toast(cascade?"科目及关联时间块已删除":"科目已删除，时间块已保留");
 }
 function renderWeek(){
@@ -508,31 +512,69 @@ function renderGoals(){
  $("#goalWeekPicker").value=weekStart;
  const weekAllEvents=state.events.filter(e=>e.date>=weekStart&&e.date<=addDays(weekStart,6)),weekEvents=weekAllEvents.filter(countsStudy),weekSubjects=[...new Set(weekAllEvents.map(e=>e.subject).filter(Boolean))];
  const goals=state.goals.filter(g=>g.week===weekStart);
- const currentWeek=monday(dateISO(new Date())),autoGoals=weekStart>=currentWeek?buildAutomaticGoals(weekEvents,weekSubjects):"";
- const manualGoals=goals.map(g=>`<div class="goal-card ${g.done?"done":""}"><input type="checkbox" data-goal="${g.id}" ${g.done?"checked":""}><div><h3>${escapeHtml(g.title)}</h3><small>${escapeHtml(g.subject||"未分类")} · ${g.minutes||0} 分钟</small></div><button data-delgoal="${g.id}" class="ghost">×</button></div>`).join("");
- $("#goalList").innerHTML=autoGoals+manualGoals||`<div class="empty">${weekStart<currentWeek?"该周没有保存目标清单。":"该周暂无学习时间块，添加计划后会自动生成目标。"}</div>`;
+ const currentWeek=monday(dateISO(new Date())),autoGoals=weekStart>=currentWeek?buildAutomaticGoals(weekEvents):[];
+ const totalMinutes=autoGoals.reduce((n,g)=>n+g.minutes,0),blockCount=autoGoals.reduce((n,g)=>n+g.count,0),doneCount=autoGoals.reduce((n,g)=>n+g.doneCount,0);
+ const overview=autoGoals.length?`<div class="goal-overview"><strong>完成 ${blockCount} 个学习时间块，共 ${formatMinutes(totalMinutes)}</strong><span>覆盖 ${autoGoals.length} 个科目；当前已完成 ${doneCount}/${blockCount} 项。</span></div>`:"";
+ const pending=autoGoals.filter(g=>!g.done).map(automaticGoalCard).join("")+goals.filter(g=>!g.done).map(manualGoalCard).join("");
+ const completed=autoGoals.filter(g=>g.done).map(automaticGoalCard).join("")+goals.filter(g=>g.done).map(manualGoalCard).join("");
+ $("#goalList").innerHTML=overview+pending+completed||`<div class="empty">${weekStart<currentWeek?"该周没有保存目标清单。":"该周暂无学习目标。"}</div>`;
  $$("[data-goal]").forEach(x=>x.onchange=()=>{snapshot();state.goals.find(g=>g.id===x.dataset.goal).done=x.checked;save()});
  $$("[data-delgoal]").forEach(x=>x.onclick=()=>{snapshot();state.goals=state.goals.filter(g=>g.id!==x.dataset.delgoal);save()});
- const by={};weekSubjects.forEach(s=>by[s]={p:0,d:0});weekEvents.forEach(e=>{const s=e.subject||"其他";by[s]||={p:0,d:0};by[s].p+=duration(e);if(e.completed)by[s].d+=actualDuration(e)});
- const stats=Object.entries(by).sort((a,b)=>b[1].p-a[1].p),maxPlanned=Math.max(1,...stats.map(([,v])=>v.p));
+ $$('[data-auto-goal]').forEach(card=>bindGoalEditor(card,()=>openGoalDialog("auto",{subject:card.dataset.autoGoal,week:weekStart})));
+ $$('[data-manual-goal]').forEach(card=>bindGoalEditor(card,()=>openGoalDialog("manual",state.goals.find(g=>g.id===card.dataset.manualGoal))));
+ const by=new Map();weekSubjects.forEach(s=>by.set(s,{p:0,d:0}));weekEvents.forEach(e=>{const s=e.subject||"未分类";if(!by.has(s))by.set(s,{p:0,d:0});const value=by.get(s);value.p+=duration(e);if(e.completed)value.d+=actualDuration(e)});
+ const stats=[...by].sort((a,b)=>b[1].p-a[1].p),maxPlanned=Math.max(1,...stats.map(([,v])=>v.p));
  $("#subjectStats").innerHTML=stats.map(([s,v])=>`<div class="stat-row"><div class="stat-head"><span>${escapeHtml(s)}</span><span>${v.d}/${v.p} 分钟</span></div><div class="meter stat-meter" style="width:${v.p/maxPlanned*100}%"><span style="width:${v.p?Math.min(100,v.d/v.p*100):0}%"></span></div></div>`).join("")||'<div class="empty">本周无学习计划</div>';
  $("#weekReflection").value=state.reflections[weekStart]||"";
 }
-function buildAutomaticGoals(events,subjects=[]){
- if(!events.length&&!subjects.length)return"";
- const groups={};subjects.forEach(subject=>groups[subject]={events:[],minutes:0,done:0});
- events.forEach(e=>{const subject=e.subject||"其他",g=groups[subject]||={events:[],minutes:0,done:0};g.events.push(e);g.minutes+=duration(e);if(e.completed)g.done++});
- const total=events.reduce((n,e)=>n+duration(e),0),done=events.filter(e=>e.completed).length;
- const overall=`<div class="goal-overview"><strong>完成 ${events.length} 个学习时间块，共 ${formatMinutes(total)}</strong><span>覆盖 ${Object.keys(groups).length} 个科目；当前已完成 ${done}/${events.length} 项。</span></div>`;
- const cards=Object.entries(groups).sort((a,b)=>b[1].minutes-a[1].minutes).map(([subject,g])=>{
-  const topics=[...new Set(g.events.map(e=>goalTopic(e.title)))],shown=topics.slice(0,4),more=topics.length-shown.length,zero=g.events.length===0,progress=zero?"0分":g.done===g.events.length?"✓":`${g.done}/${g.events.length}`;
-  return `<div class="auto-goal ${!zero&&g.done===g.events.length?"done":""}"><span class="auto-goal-mark">${progress}</span><div><h3>${escapeHtml(subject)}：${zero?"本周课程跟进":"完成本周计划进度"}</h3><p>${zero?"本周暂无单独自学时间块；完成课程学习，需要复习时再添加计划。":shown.map(escapeHtml).join("；")+(more>0?`；另有 ${more} 项`:"")}</p><small>${g.events.length} 个自学时间块 · ${formatMinutes(g.minutes)}</small></div></div>`;
- }).join("");
- return overall+cards;
+function buildAutomaticGoals(events){
+ const groups=new Map();
+ events.forEach(e=>{const amount=duration(e);if(!amount)return;const subject=e.subject||"未分类";if(!groups.has(subject))groups.set(subject,{subject,minutes:0,count:0,doneCount:0});const g=groups.get(subject);g.minutes+=amount;g.count++;if(e.completed)g.doneCount++});
+ return [...groups.values()].sort((a,b)=>b.minutes-a.minutes).map(g=>{
+  const edit=state.autoGoalEdits.find(x=>x.week===weekStart&&x.subject===g.subject);
+  return {...g,done:g.doneCount===g.count,title:edit?.title||`${g.subject}：完成本周计划进度`,description:edit?.description||""};
+ });
 }
-function goalTopic(title){return clean(title).replace(/（[^）]*）/g,"").replace(/^自习\s*[｜|]\s*/,"").trim()}
+function automaticGoalCard(g){
+ return `<div class="auto-goal ${g.done?"done":""}" data-auto-goal="${escapeHtml(g.subject)}" tabindex="0"><span class="auto-goal-mark">${g.done?"✓":`${g.doneCount}/${g.count}`}</span><div><h3>${escapeHtml(g.title)}</h3>${g.description?`<p>${escapeHtml(g.description)}</p>`:""}<small>${g.count} 个自学时间块 · ${formatMinutes(g.minutes)}</small></div></div>`;
+}
+function manualGoalCard(g){
+ return `<div class="goal-card ${g.done?"done":""}" data-manual-goal="${escapeHtml(g.id)}" tabindex="0"><input type="checkbox" data-goal="${escapeHtml(g.id)}" aria-label="标记目标完成" ${g.done?"checked":""}><div><h3>${escapeHtml(g.title)}</h3>${g.description?`<p>${escapeHtml(g.description)}</p>`:""}<small>${escapeHtml(g.subject||"未分类")} · ${g.minutes||0} 分钟</small></div><button type="button" data-delgoal="${escapeHtml(g.id)}" class="ghost" aria-label="删除目标" title="删除目标">×</button></div>`;
+}
+function bindGoalEditor(card,open){
+ card.ondblclick=ev=>{if(!ev.target.closest("input,button"))open()};
+ card.onkeydown=ev=>{if(ev.target===card&&ev.key==="Enter"){ev.preventDefault();open()}};
+}
 function formatMinutes(n){return `${Math.floor(n/60)}小时${n%60?`${n%60}分`:""}`}
-function addGoal(ev){ev.preventDefault();snapshot();state.goals.push({id:uid(),week:weekStart,title:$("#goalTitle").value.trim(),subject:$("#goalSubject").value.trim(),minutes:Number($("#goalMinutes").value)||0,done:false});$("#goalDialog").close();save()}
+let editingGoal=null;
+function openGoalDialog(kind,goal=null){
+ const automatic=kind==="auto";
+ const edit=automatic?state.autoGoalEdits.find(g=>g.week===goal.week&&g.subject===goal.subject):goal;
+ editingGoal={kind,week:goal?.week||weekStart,id:goal?.id||null,subject:goal?.subject};
+ $("#goalForm").reset();$("#goalDialogTitle").textContent=automatic?"编辑自动目标":goal?"编辑周目标":"添加本周目标";
+ $("#goalTitle").value=edit?.title||(automatic?`${goal.subject}：完成本周计划进度`:"");$("#goalDescription").value=edit?.description||"";
+ $("#goalSubject").innerHTML='<option value="">请选择科目</option>'+[...state.subjects].sort().concat("未分类").map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
+ $("#goalSubject").value=state.subjects.includes(goal?.subject)?goal.subject:goal?"未分类":"";
+ $("#goalMinutes").value=goal?.minutes??60;
+ $("#goalSubjectLabel").hidden=automatic;$("#goalMinutesLabel").hidden=automatic;$("#goalSubject").disabled=automatic;$("#goalMinutes").disabled=automatic;
+ $("#saveGoalBtn").textContent=automatic||goal?"保存":"添加";$("#goalDialog").showModal();
+}
+function saveGoal(ev){
+ ev.preventDefault();if(!editingGoal)return;
+ const title=$("#goalTitle").value.trim(),description=$("#goalDescription").value.trim();if(!title)return toast("请输入目标标题");
+ if(editingGoal.kind==="auto"){
+  snapshot();const edit=state.autoGoalEdits.find(g=>g.week===editingGoal.week&&g.subject===editingGoal.subject);
+  if(edit)Object.assign(edit,{title,description});else state.autoGoalEdits.push({week:editingGoal.week,subject:editingGoal.subject,title,description});
+ }else{
+  const subject=$("#goalSubject").value,minutes=Number($("#goalMinutes").value);
+  if(!state.subjects.includes(subject)&&subject!=="未分类")return toast("请选择已有科目");
+  if(!Number.isSafeInteger(minutes)||minutes<0)return toast("请输入有效分钟数");
+  const goal=editingGoal.id?state.goals.find(g=>g.id===editingGoal.id):null;
+  if(editingGoal.id&&!goal)return toast("该目标已不存在");
+  snapshot();if(goal)Object.assign(goal,{title,description,subject,minutes});else state.goals.push({id:uid(),week:editingGoal.week,title,description,subject,minutes,done:false});
+ }
+ $("#goalDialog").close();editingGoal=null;save();toast("目标已保存");
+}
 function renderList(){
  const q=$("#listSearch").value.trim().toLowerCase(),status=$("#listStatus").value;
  const rows=state.events.filter(e=>(!q||(e.title+" "+e.description+" "+e.subject).toLowerCase().includes(q))&&(!status||(e.type==="study"&&(status==="completed")===!!e.completed))).sort((a,b)=>(a.date+a.start).localeCompare(b.date+b.start));
@@ -601,7 +643,8 @@ function bind(){
  $("#sideSwitchBtn").onclick=()=>{sidebarRight=!sidebarRight;localStorage.setItem(SIDEBAR_STORE,String(sidebarRight));renderSidebarPosition()};
  $("#backlogSort").onchange=e=>{backlogSort=["oldest","newest","schedule"].includes(e.target.value)?e.target.value:"oldest";localStorage.setItem(BACKLOG_SORT_STORE,backlogSort);renderBacklog()};
  $("#undoBtn").onclick=undo;document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="z"&&!$("dialog[open]")){e.preventDefault();undo()}});
- $("#addGoalBtn").onclick=()=>{$("#goalForm").reset();$("#goalDialog").showModal()};$("#goalForm").onsubmit=addGoal;
+ $("#addGoalBtn").onclick=()=>openGoalDialog("manual");$("#goalForm").onsubmit=saveGoal;
+ $("#goalDialog").addEventListener("close",()=>{editingGoal=null});
  $("#goalPrevWeek").onclick=()=>{weekStart=addDays(weekStart,-7);rangeStart=weekStart;renderAll()};
  $("#goalNextWeek").onclick=()=>{weekStart=addDays(weekStart,7);rangeStart=weekStart;renderAll()};
  $("#goalThisWeek").onclick=()=>{weekStart=monday(dateISO(new Date()));rangeStart=weekStart;renderAll()};
@@ -647,7 +690,7 @@ window.StudyPlannerCloud?.init({
  getState:()=>JSON.parse(JSON.stringify(state)),
  replaceState:replaceStateFromCloud,
  emptyState,
- hasContent:()=>state.events.length>0||state.goals.length>0||Object.values(state.reflections).some(Boolean),
+ hasContent:()=>state.events.length>0||state.goals.length>0||state.autoGoalEdits.length>0||Object.values(state.reflections).some(Boolean),
  toast
 });
 })();
