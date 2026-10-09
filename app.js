@@ -17,6 +17,8 @@ const EVENT_COLORS=[
  {id:"wine",name:"酒红",bg:"#9f2e3b",border:"#7f202c",text:"#ffffff"}
 ];
 const DEFAULT_EVENT_COLOR={study:"sky",class:"wine"};
+const IMPORTANCE_VALUES=["urgent","high","normal"];
+const eventImportance=e=>IMPORTANCE_VALUES.includes(e.importance)?e.importance:"normal";
 const SUBJECTS=["编程","阅读","设计","示例课程"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const uid=()=>crypto.randomUUID?crypto.randomUUID():"id-"+Date.now()+"-"+Math.random().toString(16).slice(2);
@@ -44,7 +46,7 @@ const defaultState=()=>{
  reflections:{},
  settings:{targets:[120,120,120,120,120,120,120],dateTargets:{},warn:true}
 }};
-let state, weekStart=monday(dateISO(new Date())), rangeStart=weekStart, viewDays=Number(localStorage.getItem(VIEW_STORE))===3?3:7, todayFirst=localStorage.getItem(TODAY_FIRST_STORE)==="true", view="week", history=[], drag=null,colorTouched=false;
+let state, weekStart=monday(dateISO(new Date())), rangeStart=weekStart, viewDays=Number(localStorage.getItem(VIEW_STORE))===3?3:7, todayFirst=localStorage.getItem(TODAY_FIRST_STORE)==="true", view="week", history=[], drag=null,colorTouched=false,importanceTouched=false;
 let chartMode=localStorage.getItem(CHART_MODE_STORE)==="month"?"month":"week",chartAnchor=dateISO(new Date());
 let sidebarRight=localStorage.getItem(SIDEBAR_STORE)==="true";
 let backlogSort=["oldest","newest","schedule"].includes(localStorage.getItem(BACKLOG_SORT_STORE))?localStorage.getItem(BACKLOG_SORT_STORE):"oldest";
@@ -62,6 +64,7 @@ function load(){
 function ensureSubjects(){
  if(!Array.isArray(state.subjects))state.subjects=[...new Set([...SUBJECTS,...state.events.map(e=>e.subject),...(state.goals||[]).map(g=>g.subject)].filter(s=>s&&s!=="未分类"))];
  state.subjects=[...new Set(state.subjects.filter(s=>typeof s==="string"&&s.trim()&&s!=="未分类").map(s=>s.trim()))];
+ if(!Array.isArray(state.subjectDefaults))state.subjectDefaults=[];
 }
 function save(render=true){ensureSubjects();localStorage.setItem(STORE,JSON.stringify(state));window.StudyPlannerCloud?.queueSave(state);if(render)renderAll()}
 function snapshot(){history.push(JSON.stringify(state));if(history.length>30)history.shift();$("#undoBtn").disabled=false}
@@ -77,8 +80,15 @@ function inferSubject(title){
  const matched=state.subjects?.find(subject=>t.includes(subject));
  return matched||"未分类";
 }
-function normalizeSubject(e){if(e.subject==="其他"&&/面向对象编程|Java(?!Script)/i.test(e.title||""))e.subject="Java";return e}
-function eventColor(e){return EVENT_COLORS.find(x=>x.id===(e.color||DEFAULT_EVENT_COLOR[e.type]))||EVENT_COLORS[0]}
+function normalizeSubject(e){
+ if(e.subject==="其他"&&/面向对象编程|Java(?!Script)/i.test(e.title||""))e.subject="Java";
+ if(typeof e.colorCustomized!=="boolean")e.colorCustomized=!!e.color&&e.color!==DEFAULT_EVENT_COLOR[e.type];
+ if(typeof e.importanceCustomized!=="boolean")e.importanceCustomized=!!e.importance&&e.importance!=="normal";
+ e.importance=eventImportance(e);
+ return e;
+}
+function subjectDefaults(name){return state.subjectDefaults?.find(x=>x.name===name)||{}}
+function eventColor(e){return EVENT_COLORS.find(x=>x.id===(e.color||subjectDefaults(e.subject).color||DEFAULT_EVENT_COLOR[e.type]))||EVENT_COLORS[0]}
 function applyEventColor(element,e){const c=eventColor(e);element.style.setProperty("--event-bg",c.bg);element.style.setProperty("--event-border",c.border);element.style.setProperty("--event-text",c.text)}
 function renderEventColorPicker(){
  const picker=$("#eventColorPicker");picker.innerHTML=EVENT_COLORS.map(c=>`<button type="button" class="color-swatch" data-event-color="${c.id}" style="--swatch:${c.bg}" title="${c.name}" aria-label="${c.name}" aria-pressed="false"></button>`).join("");
@@ -107,10 +117,11 @@ function renderSubjects(){
  $("#subjectInput").value=selected;
 }
 let pendingSubjectDelete=null;
+let editingSubject=null,pendingSubjectChange=null,subjectColorTouched=false,subjectImportanceTouched=false;
 let previousSubjectSelection="";
 function chooseEventSubject(){
  const select=$("#subjectInput");
- if(select.value!=="__custom__"){previousSubjectSelection=select.value;return}
+ if(select.value!=="__custom__"){previousSubjectSelection=select.value;applyEventSubjectDefaults();return}
  select.value=previousSubjectSelection;$("#addEventSubjectForm").reset();$("#addEventSubjectDialog").showModal();$("#eventNewSubjectInput").focus();
 }
 function addEventSubject(ev){
@@ -120,13 +131,63 @@ function addEventSubject(ev){
  if(!state.subjects.includes(name)){snapshot();state.subjects.push(name);save();toast("科目已添加")}
  else toast("该科目已存在，已选择");
  $("#subjectInput").value=name;previousSubjectSelection=name;$("#addEventSubjectDialog").close();
+ applyEventSubjectDefaults();
 }
 function renderManagedSubjects(){
  $("#managedSubjectList").innerHTML=[...state.subjects].sort().map(s=>{
   const count=state.events.filter(e=>e.subject===s).length;
-  return `<div class="managed-subject-row"><div><strong>${escapeHtml(s)}</strong><small>${count} 个时间块</small></div><button type="button" class="danger ghost" data-delete-subject="${escapeHtml(s)}">删除</button></div>`;
+  return `<div class="managed-subject-row"><div><strong>${escapeHtml(s)}</strong><small>${count} 个时间块</small></div><div class="managed-subject-actions"><button type="button" class="ghost" data-settings-subject="${escapeHtml(s)}">设置</button><button type="button" class="danger ghost" data-delete-subject="${escapeHtml(s)}">删除</button></div></div>`;
  }).join("")||'<p class="muted">暂无科目，可以在上方添加。</p>';
  $$('[data-delete-subject]').forEach(b=>b.onclick=()=>requestSubjectDelete(b.dataset.deleteSubject));
+ $$('[data-settings-subject]').forEach(b=>b.onclick=()=>openSubjectSettings(b.dataset.settingsSubject));
+}
+function renderSubjectColorPicker(){
+ $("#subjectColorPicker").innerHTML=EVENT_COLORS.map(c=>`<button type="button" class="color-swatch" data-subject-color="${c.id}" style="--swatch:${c.bg}" title="${c.name}" aria-label="${c.name}" aria-pressed="false"></button>`).join("");
+ $$('[data-subject-color]').forEach(b=>b.onclick=()=>{subjectColorTouched=true;selectSubjectColor(b.dataset.subjectColor)});
+}
+function selectSubjectColor(id){
+ $("#subjectColorInput").value=id;
+ $$('[data-subject-color]').forEach(b=>{const selected=b.dataset.subjectColor===id;b.classList.toggle("selected",selected);b.setAttribute("aria-pressed",String(selected))});
+}
+function openSubjectSettings(name){
+ if(!state.subjects.includes(name))return;
+ editingSubject=name;pendingSubjectChange=null;subjectColorTouched=false;subjectImportanceTouched=false;
+ const defaults=subjectDefaults(name);
+ $("#subjectNameInput").value=name;$("#subjectImportanceInput").value=defaults.importance||"normal";selectSubjectColor(defaults.color||"sky");
+ $("#subjectSettingsDialog").showModal();
+}
+function requestSubjectApply(ev){
+ ev.preventDefault();const name=$("#subjectNameInput").value.trim(),defaults=subjectDefaults(editingSubject);
+ if(!editingSubject||!state.subjects.includes(editingSubject))return;
+ if(!name||name==="未分类"||name==="__custom__"||(name!==editingSubject&&state.subjects.includes(name)))return toast("该科目已存在或名称不可用");
+ const color=$("#subjectColorInput").value,importance=$("#subjectImportanceInput").value;
+ pendingSubjectChange={oldName:editingSubject,name,color,importance,colorChanged:subjectColorTouched||color!==(defaults.color||"sky"),importanceChanged:subjectImportanceTouched||importance!==(defaults.importance||"normal")};
+ $("#applySubjectKeep").hidden=!(pendingSubjectChange.colorChanged||pendingSubjectChange.importanceChanged);
+ $("#subjectApplyDialog").showModal();
+}
+function cancelSubjectApply(){pendingSubjectChange=null;$("#subjectApplyDialog").close()}
+function applySubjectChange(keepPersonal){
+ const change=pendingSubjectChange;if(!change||!state.subjects.includes(change.oldName))return cancelSubjectApply();
+ snapshot();const defaults={...subjectDefaults(change.oldName),name:change.name};
+ if(change.colorChanged)defaults.color=change.color;
+ if(change.importanceChanged)defaults.importance=change.importance;
+ state.subjectDefaults=state.subjectDefaults.filter(x=>x.name!==change.oldName);state.subjectDefaults.push(defaults);
+ state.subjects=state.subjects.map(s=>s===change.oldName?change.name:s);
+ state.events.forEach(e=>{
+  if(e.subject!==change.oldName)return;
+  e.subject=change.name;
+  if(change.colorChanged&&(!keepPersonal||!e.colorCustomized)){e.color=change.color;e.colorCustomized=false}
+  if(change.importanceChanged&&(!keepPersonal||!e.importanceCustomized)){e.importance=change.importance;e.importanceCustomized=false}
+ });
+ state.goals.forEach(g=>{if(g.subject===change.oldName)g.subject=change.name});
+ if(previousSubjectSelection===change.oldName)previousSubjectSelection=change.name;
+ if($("#subjectFilter").value===change.oldName)$("#subjectFilter").value="";
+ pendingSubjectChange=null;editingSubject=null;$("#subjectApplyDialog").close();$("#subjectSettingsDialog").close();save();toast("科目设置已保存");
+}
+function applyEventSubjectDefaults(){
+ const old=state.events.find(e=>e.id===$("#eventId").value),selected=$("#subjectInput").value||inferSubject($("#titleInput").value),defaults=subjectDefaults(selected);
+ if(!colorTouched&&!old?.colorCustomized)selectEventColor(defaults.color||DEFAULT_EVENT_COLOR[$("#typeInput").value]);
+ if(!importanceTouched&&!old?.importanceCustomized)$("#importanceInput").value=defaults.importance||"normal";
 }
 function addManagedSubject(ev){
  ev.preventDefault();const input=$("#newSubjectInput"),name=input.value.trim();
@@ -147,6 +208,7 @@ function cancelSubjectDelete(){pendingSubjectDelete=null;$("#deleteSubjectDialog
 function deleteManagedSubject(cascade){
  const name=pendingSubjectDelete;if(!name||!state.subjects.includes(name))return cancelSubjectDelete();
  snapshot();state.subjects=state.subjects.filter(s=>s!==name);
+ state.subjectDefaults=state.subjectDefaults.filter(x=>x.name!==name);
  if(cascade)state.events=state.events.filter(e=>e.subject!==name);
  else state.events.forEach(e=>{if(e.subject===name)e.subject="未分类"});
  state.goals.forEach(g=>{if(g.subject===name)g.subject="未分类"});
@@ -175,7 +237,7 @@ function renderWeek(){
   const date=addDays(displayStart,i),col=document.createElement("div");
   col.className="day-column"+(date===today?" today":"");col.dataset.date=date;
   for(let h=0;h<17;h++){const line=document.createElement("div");line.className="half-line";line.style.top=(h*HOUR+HOUR/2)+"px";col.append(line)}
-  let ev=eventsOn(date).filter(e=>!e.backlog&&(filters[e.type]!==false)&&(e.type!=="study"||filters.completed||!e.completed));
+  let ev=eventsOn(date).filter(e=>!e.backlog&&(filters[e.type]!==false)&&(e.type!=="study"||filters.completed||!e.completed)&&importanceVisible(e));
   if(q)ev=ev.filter(e=>(e.title+" "+e.description+" "+e.notes).toLowerCase().includes(q));
   if(sub)ev=ev.filter(e=>e.subject===sub);
   placeEvents(col,ev);
@@ -187,6 +249,7 @@ function renderWeek(){
  renderBacklog();
 }
 function visibleStart(){return todayFirst?rangeStart:(viewDays===7?weekStart:rangeStart)}
+function importanceVisible(e){return $(`[data-importance-filter="${eventImportance(e)}"]`)?.checked!==false}
 function placeEvents(col,items){
  const normal=[...items].sort((a,b)=>snappedMinutes(a.start)-snappedMinutes(b.start)||snappedMinutes(b.end)-snappedMinutes(a.end));
  let group=[],groupEnd=-1;
@@ -228,9 +291,9 @@ function eventCard(e,lane,lanes,layout={}){
 }
 function renderBacklog(){
  const key=e=>Number(e.backlogAt)||state.events.indexOf(e),compare=(a,b)=>backlogSort==="schedule"?(a.date+a.start+a.end).localeCompare(b.date+b.start+b.end)||(key(a)-key(b)):(key(a)-key(b))*(backlogSort==="newest"?-1:1);
- const showStudy=$(".legend-panel input[data-filter='study']")?.checked!==false,items=state.events.filter(e=>e.backlog&&e.type==="study"&&!e.completed).sort(compare);
+ const showStudy=$(".legend-panel input[data-filter='study']")?.checked!==false,allItems=state.events.filter(e=>e.backlog&&e.type==="study"&&!e.completed),items=allItems.filter(importanceVisible).sort(compare);
  $("#backlogSort").value=backlogSort;
- $("#backlogCount").textContent=items.length;
+ $("#backlogCount").textContent=allItems.length;
  $("#backlogList").innerHTML="";
  if(!showStudy){$("#backlogList").innerHTML='<div class="backlog-empty">“学习计划”已隐藏</div>';return}
  if(!items.length){$("#backlogList").innerHTML='<div class="backlog-empty">暂无拖欠任务</div>';return}
@@ -367,9 +430,9 @@ function openEvent(e,defaults={}){
  $("#titleInput").value=e?.title||"";$("#typeInput").value=e?.type||"study";$("#subjectInput").value=e?.subject||"";
  previousSubjectSelection=$("#subjectInput").value;
  $("#dateInput").value=e?.date||defaults.date||dateISO(new Date());$("#startInput").value=e?.start||defaults.start||"09:00";$("#endInput").value=e?.end||defaults.end||"10:00";
- $("#descriptionInput").value=e?.description||"";$("#importanceInput").value=e?.importance||"normal";$("#repeatInput").value="none";$("#untilInput").value=addDays($("#dateInput").value,28);
+ $("#descriptionInput").value=e?.description||"";$("#importanceInput").value=e?eventImportance(e):"normal";$("#repeatInput").value="none";$("#untilInput").value=addDays($("#dateInput").value,28);
  $("#completedInput").checked=!!e?.completed;$("#notesInput").value=e?.notes||"";
- colorTouched=false;selectEventColor(e?.color||DEFAULT_EVENT_COLOR[e?.type||"study"]);$("#coverableInput").checked=!!e?.coverable;
+ colorTouched=false;importanceTouched=false;selectEventColor(e?eventColor(e).id:DEFAULT_EVENT_COLOR.study);$("#coverableInput").checked=!!e?.coverable;
  $("#deleteBtn").style.visibility=e?"visible":"hidden";$("#duplicateBtn").style.visibility=e?"visible":"hidden";$("#reviewBtn").style.visibility=e&&e.type==="study"?"visible":"hidden";
  $("#scopeWrap").hidden=!e?.seriesId;$("#scopeInput").value="one";toggleUntil();toggleRecordBox();$("#eventDialog").showModal();
 }
@@ -377,9 +440,9 @@ function toggleRecordBox(){$("#recordBox").hidden=$("#typeInput").value!=="study
 function formEvent(){
  const start=$("#startInput").value,end=$("#endInput").value;if(minutes(end)<=minutes(start))throw Error("结束时间必须晚于开始时间");
  const type=$("#typeInput").value,isStudy=type==="study";
- const subject=$("#subjectInput").value.trim();
+ const subject=$("#subjectInput").value.trim(),old=state.events.find(e=>e.id===$("#eventId").value);
  const inferred=inferSubject($("#titleInput").value);
- return {title:$("#titleInput").value.trim(),type,subject:subject||(state.subjects.includes(inferred)?inferred:"未分类"),date:$("#dateInput").value,start,end,description:$("#descriptionInput").value.trim(),importance:$("#importanceInput").value,color:$("#colorInput").value,coverable:$("#coverableInput").checked,completed:isStudy&&$("#completedInput").checked,notes:isStudy?$("#notesInput").value.trim():""};
+ return {title:$("#titleInput").value.trim(),type,subject:subject||(state.subjects.includes(inferred)?inferred:"未分类"),date:$("#dateInput").value,start,end,description:$("#descriptionInput").value.trim(),importance:$("#importanceInput").value,importanceCustomized:importanceTouched||!!old?.importanceCustomized,color:$("#colorInput").value,colorCustomized:colorTouched||!!old?.colorCustomized,coverable:$("#coverableInput").checked,completed:isStudy&&$("#completedInput").checked,notes:isStudy?$("#notesInput").value.trim():""};
 }
 function submitEvent(ev){
  ev.preventDefault();let data;try{data=formEvent()}catch(err){return toast(err.message)}
@@ -391,7 +454,7 @@ function submitEvent(ev){
   else{
    const group=state.events.filter(e=>e.seriesId===old.seriesId&&(scope==="series"||e.date>=old.date));
    const dayShift=Math.round((parseDate(data.date)-parseDate(old.date))/86400000),startShift=minutes(data.start)-minutes(old.start);
-    group.forEach(e=>{e.title=data.title;e.type=data.type;e.subject=data.subject;e.description=data.description;e.importance=data.importance;e.color=data.color;e.coverable=data.coverable;e.start=clock(minutes(e.start)+startShift);e.end=clock(minutes(e.end)+startShift);if(scope==="future")e.date=addDays(e.date,dayShift)});
+    group.forEach(e=>{e.title=data.title;e.type=data.type;e.subject=data.subject;e.description=data.description;e.importance=data.importance;e.importanceCustomized=data.importanceCustomized;e.color=data.color;e.colorCustomized=data.colorCustomized;e.coverable=data.coverable;e.start=clock(minutes(e.start)+startShift);e.end=clock(minutes(e.end)+startShift);if(scope==="future")e.date=addDays(e.date,dayShift)});
   }
  }else{
   const base={id:uid(),seriesId:null,...data};state.events.push(base);
@@ -418,11 +481,11 @@ function duplicateEvent(){
 }
 function generateReviews(){
  const id=$("#eventId").value,e=state.events.find(x=>x.id===id);if(!e)return;
- const intervals=e.importance==="high"?[1,3,7,21]:e.importance==="low"?[7]:[2,7];
+ const isHigh=eventImportance(e)!=="normal",intervals=isHigh?[1,3,7,21]:[2,7];
  if(!confirm(`为“${e.title}”生成 ${intervals.map(x=>x+"天后").join("、")} 的复习块？`))return;
  snapshot();intervals.forEach((days,i)=>{
-  const date=addDays(e.date,days),dur=e.importance==="high"?20:15,start=findSlot(date,dur);
-  state.events.push({id:uid(),seriesId:null,title:e.title.replace(/·[^·（）]+(?=（|$)/,"")+"·间隔复习"+(i+1)+(e.subject?`（${e.subject}）`:""),type:"study",subject:e.subject,date,start,end:clock(minutes(start)+dur),description:`来源：${e.date} ${e.title}\n先闭书完成一个最小例子或关键步骤，再核对。记录独立、提示后或未完成；连续两次独立通过后减少固定复习。`,importance:e.importance,color:e.color||DEFAULT_EVENT_COLOR.study,coverable:!!e.coverable,completed:false,notes:""});
+  const date=addDays(e.date,days),dur=isHigh?20:15,start=findSlot(date,dur);
+  state.events.push({id:uid(),seriesId:null,title:e.title.replace(/·[^·（）]+(?=（|$)/,"")+"·间隔复习"+(i+1)+(e.subject?`（${e.subject}）`:""),type:"study",subject:e.subject,date,start,end:clock(minutes(start)+dur),description:`来源：${e.date} ${e.title}\n先闭书完成一个最小例子或关键步骤，再核对。记录独立、提示后或未完成；连续两次独立通过后减少固定复习。`,importance:eventImportance(e),importanceCustomized:!!e.importanceCustomized,color:eventColor(e).id,colorCustomized:!!e.colorCustomized,coverable:!!e.coverable,completed:false,notes:""});
  });$("#eventDialog").close();save();toast("已生成间隔复习");
 }
 function findSlot(date,dur){
@@ -506,6 +569,7 @@ function reset(){if(!confirm("确认清空当前浏览器中的全部计划？�
 
 function bind(){
  renderEventColorPicker();
+ renderSubjectColorPicker();
  $$('dialog button[value="cancel"]').forEach(b=>b.onclick=()=>b.closest("dialog").close());
  $("#addEventSubjectForm").onsubmit=addEventSubject;
  $$(".tab").forEach(b=>b.onclick=()=>{view=b.dataset.view;renderAll()});
@@ -517,7 +581,9 @@ function bind(){
  $("#createBtn").onclick=()=>openEvent(null,{date:dateISO(new Date())});$("#eventForm").onsubmit=submitEvent;
  $("#deleteBtn").onclick=deleteEvent;$("#duplicateBtn").onclick=duplicateEvent;$("#reviewBtn").onclick=generateReviews;
  $("#repeatInput").onchange=toggleUntil;
- $("#typeInput").onchange=()=>{toggleRecordBox();if(!$("#eventId").value&&!colorTouched)selectEventColor(DEFAULT_EVENT_COLOR[$("#typeInput").value])};
+ $("#typeInput").onchange=()=>{toggleRecordBox();applyEventSubjectDefaults()};
+ $("#importanceInput").onchange=()=>{importanceTouched=true};
+ $("#titleInput").oninput=()=>{if(!$("#subjectInput").value)applyEventSubjectDefaults()};
  $("#subjectInput").onchange=chooseEventSubject;
  $("#searchInput").oninput=renderWeek;$("#subjectFilter").onchange=renderWeek;
  $$(".legend-panel input").forEach(x=>x.onchange=renderWeek);
@@ -538,6 +604,12 @@ function bind(){
  $("#settingsBtn").onclick=()=>{renderSettings();$("#settingsDialog").showModal()};$("#settingsForm").onsubmit=saveSettings;
  $("#manageSubjectsBtn").onclick=()=>{renderManagedSubjects();$("#subjectsDialog").showModal()};
  $("#closeSubjectsBtn").onclick=()=>$("#subjectsDialog").close();$("#addSubjectForm").onsubmit=addManagedSubject;
+ $("#subjectSettingsForm").onsubmit=requestSubjectApply;
+ $("#subjectImportanceInput").onchange=()=>{subjectImportanceTouched=true};
+ $("#applySubjectKeep").onclick=()=>applySubjectChange(true);$("#applySubjectAll").onclick=()=>applySubjectChange(false);
+ $("#cancelSubjectApply").onclick=cancelSubjectApply;$("#cancelSubjectApplyClose").onclick=cancelSubjectApply;
+ $("#subjectApplyDialog").addEventListener("cancel",()=>{pendingSubjectChange=null});
+ $("#subjectSettingsDialog").addEventListener("close",()=>{editingSubject=null});
  $("#cancelSubjectDelete").onclick=cancelSubjectDelete;$("#cancelSubjectDeleteClose").onclick=cancelSubjectDelete;
  $("#deleteSubjectDialog").addEventListener("cancel",()=>{pendingSubjectDelete=null});
  $("#keepSubjectEventsBtn").onclick=()=>deleteManagedSubject(false);$("#cascadeSubjectEventsBtn").onclick=()=>deleteManagedSubject(true);

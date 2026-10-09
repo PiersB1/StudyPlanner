@@ -6,7 +6,7 @@
   <meta name="description" content="个人学习计划工具。未登录时保存在当前浏览器，登录后可跨设备云同步。">
   <title>学习计划</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23285f86'/%3E%3Cpath d='M18 18h28v7H18zm0 12h20v7H18zm0 12h14v7H18z' fill='white'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=20261009-overlay2">
+  <link rel="stylesheet" href="styles.css?v=20261009-importance1">
 </head>
 <body>
   <header class="topbar">
@@ -53,9 +53,18 @@
         <aside class="legend-panel" id="sidePanel">
           <section class="sidebar-section sidebar-filters">
             <h2>显示</h2>
-            <label><input type="checkbox" data-filter="class" checked><span class="dot class"></span>固定课程</label>
-            <label><input type="checkbox" data-filter="study" checked><span class="dot study"></span>学习计划</label>
-            <label><input type="checkbox" data-filter="completed" checked><span class="dot completed"></span>完成记录</label>
+            <div class="display-filter-columns">
+              <div class="display-types">
+                <label><input type="checkbox" data-filter="class" checked><span class="dot class"></span>固定课程</label>
+                <label><input type="checkbox" data-filter="study" checked><span class="dot study"></span>学习计划</label>
+                <label><input type="checkbox" data-filter="completed" checked><span class="dot completed"></span>完成记录</label>
+              </div>
+              <div class="display-importance">
+                <label><input type="checkbox" data-importance-filter="urgent" checked>紧急</label>
+                <label><input type="checkbox" data-importance-filter="high" checked>重点</label>
+                <label><input type="checkbox" data-importance-filter="normal" checked>一般</label>
+              </div>
+            </div>
           </section>
           <section class="sidebar-section sidebar-hours">
             <h2>本周学时</h2>
@@ -153,7 +162,7 @@
         <label>科目<select id="subjectInput"></select></label>
         <label>日期<input id="dateInput" type="date" required></label>
         <div class="time-pair"><label>开始<input id="startInput" type="time" step="60" required></label><label>结束<input id="endInput" type="time" step="60" required></label></div>
-        <label>重要性<select id="importanceInput"><option value="normal">普通</option><option value="high">重点</option><option value="low">低优先级</option></select></label>
+        <label>重要性<select id="importanceInput"><option value="urgent">紧急</option><option value="high">重点</option><option value="normal">一般</option></select></label>
         <label>重复<select id="repeatInput"><option value="none">不重复</option><option value="weekdays">每个工作日</option><option value="weekly">每周同一天</option></select></label>
         <label id="untilLabel">重复至<input id="untilInput" type="date"></label>
         <label id="scopeWrap" hidden>修改范围<select id="scopeInput"><option value="one">只改这一次</option><option value="future">这次及以后</option><option value="series">整个重复计划</option></select></label>
@@ -211,6 +220,25 @@
       <div class="dialog-head"><h2 id="deleteSubjectTitle">删除科目</h2><button type="button" class="close" id="cancelSubjectDeleteClose" aria-label="关闭">×</button></div>
       <p id="deleteSubjectMessage"></p>
       <div class="subject-delete-actions"><button type="button" class="ghost" id="cancelSubjectDelete">取消</button><button type="button" class="ghost" id="keepSubjectEventsBtn">仅删除科目</button><button type="button" class="danger" id="cascadeSubjectEventsBtn">级联删除</button></div>
+    </div>
+  </dialog>
+
+  <dialog id="subjectSettingsDialog" aria-labelledby="subjectSettingsTitle">
+    <form id="subjectSettingsForm">
+      <div class="dialog-head"><h2 id="subjectSettingsTitle">科目设置</h2><button type="button" class="close" value="cancel" aria-label="关闭">×</button></div>
+      <div class="form-grid">
+        <label class="span-2">名称<input id="subjectNameInput" required maxlength="60"></label>
+        <label class="span-2">重要性<select id="subjectImportanceInput"><option value="urgent">紧急</option><option value="high">重点</option><option value="normal">一般</option></select></label>
+        <fieldset class="span-2 color-field"><legend>颜色</legend><input type="hidden" id="subjectColorInput" value="sky"><div class="event-color-picker" id="subjectColorPicker" role="group" aria-label="科目颜色"></div></fieldset>
+      </div>
+      <div class="subject-delete-actions subject-settings-actions"><button type="button" class="ghost" value="cancel">取消</button><button type="submit" class="primary">确认</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="subjectApplyDialog" aria-labelledby="subjectApplyTitle">
+    <div class="subject-manager">
+      <div class="dialog-head"><h2 id="subjectApplyTitle">是否应用此更改</h2><button type="button" class="close" id="cancelSubjectApplyClose" aria-label="关闭">×</button></div>
+      <div class="subject-delete-actions"><button type="button" class="primary" id="applySubjectKeep">应用且保留个人调整</button><button type="button" class="primary" id="applySubjectAll">应用全部</button><button type="button" class="ghost" id="cancelSubjectApply">取消</button></div>
     </div>
   </dialog>
 
@@ -303,6 +331,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="cloud-sync.js"></script>
-  <script src="app.js?v=20261009-overlay2"></script>
+  <script src="app.js?v=20261009-importance1"></script>
 </body>
 </html>
