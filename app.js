@@ -197,7 +197,10 @@ function eventsOverlap(a,b){return snappedMinutes(a.start)<snappedMinutes(b.end)
 function placeOverlapGroup(col,group){
  const order=e=>state.events.indexOf(e),lanes=[],placed=new Map(),covered=new Set();
  [...group].sort((a,b)=>order(a)-order(b)).forEach(e=>{
-  let lane=lanes.findIndex(events=>{const hit=events.filter(x=>eventsOverlap(x,e));return hit.length===1&&hit[0].coverable&&order(hit[0])<order(e)}),isOverlay=lane>=0;
+  let lane=lanes.findIndex(events=>{
+   const hit=events.filter(x=>eventsOverlap(x,e));
+   return hit.length>0&&hit.every(x=>x.coverable&&order(x)<order(e))&&hit.every((x,i)=>hit.slice(i+1).every(y=>!eventsOverlap(x,y)));
+  }),isOverlay=lane>=0;
   if(lane<0)lane=lanes.findIndex(events=>events.every(x=>!eventsOverlap(x,e)));
   if(lane<0){lane=lanes.length;lanes.push([])}
   if(isOverlay)lanes[lane].filter(x=>eventsOverlap(x,e)).forEach(x=>covered.add(x.id));
