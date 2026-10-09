@@ -348,7 +348,9 @@ function onCardPointerUp(ev){
  const d=drag;if(!d)return;cleanupDrag(d);drag=null;
  if(!d.moved)return openEvent(d.e);
  if(ev?.type==="pointercancel"||!d.preview){renderAll();toast(d.invalidBacklog?"只有未完成的学习计划可以放入拖欠区":"未放入合法区域，已恢复原位置");return}
- const wasBacklog=!!d.e.backlog;snapshot();Object.assign(d.e,d.preview);if(d.e.backlog&&!wasBacklog)d.e.backlogAt=Date.now();save();warnCap(d.e.date);
+ const wasBacklog=!!d.e.backlog;snapshot();Object.assign(d.e,d.preview);if(d.e.backlog&&!wasBacklog)d.e.backlogAt=Date.now();
+ if(!d.e.backlog){const index=state.events.indexOf(d.e);if(index>=0){state.events.splice(index,1);state.events.push(d.e)}}
+ save();warnCap(d.e.date);
  toast(d.e.backlog?"已移入拖欠区":wasBacklog?"已从拖欠区安排到日历":"已调整这一次时间块");
 }
 function warnCap(date){
