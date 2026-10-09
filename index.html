@@ -157,6 +157,12 @@
         <label>重复<select id="repeatInput"><option value="none">不重复</option><option value="weekdays">每个工作日</option><option value="weekly">每周同一天</option></select></label>
         <label id="untilLabel">重复至<input id="untilInput" type="date"></label>
         <label id="scopeWrap" hidden>修改范围<select id="scopeInput"><option value="one">只改这一次</option><option value="future">这次及以后</option><option value="series">整个重复计划</option></select></label>
+        <fieldset class="span-2 color-field">
+          <legend>颜色</legend>
+          <input type="hidden" id="colorInput" value="sky">
+          <div class="event-color-picker" id="eventColorPicker" role="radiogroup" aria-label="时间块颜色"></div>
+        </fieldset>
+        <label class="span-2 check coverable-check"><input id="coverableInput" type="checkbox"> 可被覆盖 <small>后来创建的重叠时间块可以覆盖在它上面</small></label>
         <label class="span-2">简介<textarea id="descriptionInput" rows="6" placeholder="具体学什么、完成标准、实际记录"></textarea></label>
         <fieldset class="span-2 record-box" id="recordBox">
           <legend>完成记录</legend>

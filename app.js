@@ -2,6 +2,21 @@
 "use strict";
 const STORE="studyPlanner.public.v1", VIEW_STORE="studyPlanner.public.viewDays", TODAY_FIRST_STORE="studyPlanner.public.todayFirst", CHART_MODE_STORE="studyPlanner.public.chartMode", SIDEBAR_STORE="studyPlanner.public.sidebarRight", BACKLOG_SORT_STORE="studyPlanner.public.backlogSort", START=6*60, END=23*60, HOUR=72, SNAP=5;
 const DOW=["日","一","二","三","四","五","六"];
+const EVENT_COLORS=[
+ {id:"sky",name:"天蓝",bg:"#b7dcf4",border:"#76aed2",text:"#17384e"},
+ {id:"blue",name:"蓝色",bg:"#a9c7ee",border:"#729aca",text:"#173451"},
+ {id:"violet",name:"紫色",bg:"#c7b8eb",border:"#9581c8",text:"#372a58"},
+ {id:"pink",name:"粉色",bg:"#edbdd6",border:"#c986aa",text:"#592c45"},
+ {id:"rose",name:"玫红",bg:"#e8abb2",border:"#bd747e",text:"#57252c"},
+ {id:"orange",name:"橙色",bg:"#efba91",border:"#ca8959",text:"#55301b"},
+ {id:"amber",name:"琥珀",bg:"#f0cf88",border:"#c7a24e",text:"#4d3a12"},
+ {id:"yellow",name:"黄色",bg:"#f2e39a",border:"#cbbb58",text:"#494116"},
+ {id:"lime",name:"青柠",bg:"#d5e6a4",border:"#a8bd68",text:"#34431c"},
+ {id:"green",name:"绿色",bg:"#b7ddb9",border:"#7fb186",text:"#24462b"},
+ {id:"teal",name:"青色",bg:"#a9ddd4",border:"#70afa4",text:"#204943"},
+ {id:"wine",name:"酒红",bg:"#9f2e3b",border:"#7f202c",text:"#ffffff"}
+];
+const DEFAULT_EVENT_COLOR={study:"sky",class:"wine"};
 const SUBJECTS=["编程","阅读","设计","示例课程"];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const uid=()=>crypto.randomUUID?crypto.randomUUID():"id-"+Date.now()+"-"+Math.random().toString(16).slice(2);
@@ -29,7 +44,7 @@ const defaultState=()=>{
  reflections:{},
  settings:{targets:[120,120,120,120,120,120,120],dateTargets:{},warn:true}
 }};
-let state, weekStart=monday(dateISO(new Date())), rangeStart=weekStart, viewDays=Number(localStorage.getItem(VIEW_STORE))===3?3:7, todayFirst=localStorage.getItem(TODAY_FIRST_STORE)==="true", view="week", history=[], drag=null;
+let state, weekStart=monday(dateISO(new Date())), rangeStart=weekStart, viewDays=Number(localStorage.getItem(VIEW_STORE))===3?3:7, todayFirst=localStorage.getItem(TODAY_FIRST_STORE)==="true", view="week", history=[], drag=null,colorTouched=false;
 let chartMode=localStorage.getItem(CHART_MODE_STORE)==="month"?"month":"week",chartAnchor=dateISO(new Date());
 let sidebarRight=localStorage.getItem(SIDEBAR_STORE)==="true";
 let backlogSort=["oldest","newest","schedule"].includes(localStorage.getItem(BACKLOG_SORT_STORE))?localStorage.getItem(BACKLOG_SORT_STORE):"oldest";
@@ -63,6 +78,16 @@ function inferSubject(title){
  return matched||"未分类";
 }
 function normalizeSubject(e){if(e.subject==="其他"&&/面向对象编程|Java(?!Script)/i.test(e.title||""))e.subject="Java";return e}
+function eventColor(e){return EVENT_COLORS.find(x=>x.id===(e.color||DEFAULT_EVENT_COLOR[e.type]))||EVENT_COLORS[0]}
+function applyEventColor(element,e){const c=eventColor(e);element.style.setProperty("--event-bg",c.bg);element.style.setProperty("--event-border",c.border);element.style.setProperty("--event-text",c.text)}
+function renderEventColorPicker(){
+ const picker=$("#eventColorPicker");picker.innerHTML=EVENT_COLORS.map(c=>`<button type="button" class="color-swatch" data-event-color="${c.id}" style="--swatch:${c.bg}" title="${c.name}" aria-label="${c.name}" aria-pressed="false"></button>`).join("");
+ picker.querySelectorAll("button").forEach(button=>button.onclick=()=>selectEventColor(button.dataset.eventColor,true));
+}
+function selectEventColor(id,touched=false){
+ const valid=EVENT_COLORS.some(c=>c.id===id)?id:"sky";$("#colorInput").value=valid;colorTouched ||= touched;
+ $$("[data-event-color]").forEach(button=>{const selected=button.dataset.eventColor===valid;button.classList.toggle("selected",selected);button.setAttribute("aria-pressed",String(selected))});
+}
 
 function renderAll(){renderSubjects();renderNav();renderSidebarPosition();renderWeek();renderGoals();renderList();renderVisualization();renderManagedSubjects()}
 function renderNav(){
@@ -163,24 +188,34 @@ function renderWeek(){
 }
 function visibleStart(){return todayFirst?rangeStart:(viewDays===7?weekStart:rangeStart)}
 function placeEvents(col,items){
- const normal=items.sort((a,b)=>minutes(a.start)-minutes(b.start)||duration(b)-duration(a));
- let active=[],assign=[],max=1;
- normal.forEach(e=>{
-  active=active.filter(x=>snappedMinutes(x.e.end)>snappedMinutes(e.start));
-  const used=new Set(active.map(x=>x.lane));let lane=0;while(used.has(lane))lane++;
-  active.push({e,lane});assign.push({e,lane});max=Math.max(max,active.length);
- });
- assign.forEach(x=>col.append(eventCard(x.e,x.lane,max)));
+ const normal=[...items].sort((a,b)=>snappedMinutes(a.start)-snappedMinutes(b.start)||snappedMinutes(b.end)-snappedMinutes(a.end));
+ let group=[],groupEnd=-1;
+ const flush=()=>{if(group.length)placeOverlapGroup(col,group);group=[];groupEnd=-1};
+ normal.forEach(e=>{const start=snappedMinutes(e.start);if(group.length&&start>=groupEnd)flush();group.push(e);groupEnd=Math.max(groupEnd,snappedMinutes(e.end))});flush();
 }
-function eventCard(e,lane,lanes){
+function eventsOverlap(a,b){return snappedMinutes(a.start)<snappedMinutes(b.end)&&snappedMinutes(b.start)<snappedMinutes(a.end)}
+function placeOverlapGroup(col,group){
+ const order=e=>state.events.indexOf(e),lanes=[],placed=new Map(),covered=new Set();
+ [...group].sort((a,b)=>order(a)-order(b)).forEach(e=>{
+  let lane=lanes.findIndex(events=>{const hit=events.filter(x=>eventsOverlap(x,e));return hit.length===1&&hit[0].coverable&&order(hit[0])<order(e)}),isOverlay=lane>=0;
+  if(lane<0)lane=lanes.findIndex(events=>events.every(x=>!eventsOverlap(x,e)));
+  if(lane<0){lane=lanes.length;lanes.push([])}
+  if(isOverlay)lanes[lane].filter(x=>eventsOverlap(x,e)).forEach(x=>covered.add(x.id));
+  lanes[lane].push(e);placed.set(e.id,{lane,overlay:isOverlay});
+ });
+ const laneCount=Math.max(1,lanes.length);
+ [...group].sort((a,b)=>order(a)-order(b)).forEach(e=>{const info=placed.get(e.id);col.append(eventCard(e,info.lane,laneCount,{covered:covered.has(e.id),overlay:info.overlay,order:order(e)}))});
+}
+function eventCard(e,lane,lanes,layout={}){
  const top=(Math.max(START,snappedMinutes(e.start))-START)/60*HOUR;
  const bottom=(Math.min(END,snappedMinutes(e.end))-START)/60*HOUR;
  const card=document.createElement("article");
  const dur=duration(e),sizeClass=dur<=15?"micro":dur<=30?"compact":"";
- card.className=`event ${e.type} ${sizeClass} ${e.type==="study"&&e.completed?"completed":""}`;
+ card.className=`event ${e.type} ${sizeClass} ${e.type==="study"&&e.completed?"completed":""} ${layout.covered?"covered":""} ${layout.overlay?"overlay":""}`;
  card.dataset.id=e.id;
  card.style.top=top+"px";card.style.height=Math.max(12,bottom-top)+"px";
  card.style.left=`calc(${lane/lanes*100}% + 3px)`;card.style.width=`calc(${100/lanes}% - 6px)`;
+ card.style.zIndex=layout.overlay?"7":layout.covered?"3":"4";applyEventColor(card,e);
  card.title=e.description||e.title;
  card.innerHTML=`<div class="event-title">${escapeHtml(e.title)}</div><div class="event-time">${displayRange(e)}</div>${e.subject?`<div class="event-subject">${escapeHtml(e.subject)}</div>`:""}<span class="resize-handle" aria-hidden="true"></span>`;
  card.addEventListener("pointerdown",onCardPointerDown);
@@ -198,7 +233,7 @@ function renderBacklog(){
  if(!items.length){$("#backlogList").innerHTML='<div class="backlog-empty">暂无拖欠任务</div>';return}
  items.forEach(e=>{
   const dur=duration(e),sizeClass=dur<=15?"micro":dur<=30?"compact":"";
-  const card=document.createElement("article");card.className=`event study backlog-card ${sizeClass}`;card.dataset.id=e.id;card.title=`${e.date} · ${displayRange(e)}\n${e.description||e.title}`;
+   const card=document.createElement("article");card.className=`event study backlog-card ${sizeClass}`;card.dataset.id=e.id;card.title=`${e.date} · ${displayRange(e)}\n${e.description||e.title}`;applyEventColor(card,e);
   card.style.height=Math.max(12,(snappedMinutes(e.end)-snappedMinutes(e.start))/60*HOUR)+"px";
   card.innerHTML=`<div class="event-title">${escapeHtml(e.title)}</div><div class="event-time">${e.date} · ${displayRange(e)}</div>${e.subject?`<div class="event-subject">${escapeHtml(e.subject)}</div>`:""}`;
   card.addEventListener("pointerdown",onCardPointerDown);card.addEventListener("pointerenter",()=>showEventPreview(card,e));card.addEventListener("pointerleave",hideEventPreview);$("#backlogList").append(card);
@@ -329,6 +364,7 @@ function openEvent(e,defaults={}){
  $("#dateInput").value=e?.date||defaults.date||dateISO(new Date());$("#startInput").value=e?.start||defaults.start||"09:00";$("#endInput").value=e?.end||defaults.end||"10:00";
  $("#descriptionInput").value=e?.description||"";$("#importanceInput").value=e?.importance||"normal";$("#repeatInput").value="none";$("#untilInput").value=addDays($("#dateInput").value,28);
  $("#completedInput").checked=!!e?.completed;$("#notesInput").value=e?.notes||"";
+ colorTouched=false;selectEventColor(e?.color||DEFAULT_EVENT_COLOR[e?.type||"study"]);$("#coverableInput").checked=!!e?.coverable;
  $("#deleteBtn").style.visibility=e?"visible":"hidden";$("#duplicateBtn").style.visibility=e?"visible":"hidden";$("#reviewBtn").style.visibility=e&&e.type==="study"?"visible":"hidden";
  $("#scopeWrap").hidden=!e?.seriesId;$("#scopeInput").value="one";toggleUntil();toggleRecordBox();$("#eventDialog").showModal();
 }
@@ -338,7 +374,7 @@ function formEvent(){
  const type=$("#typeInput").value,isStudy=type==="study";
  const subject=$("#subjectInput").value.trim();
  const inferred=inferSubject($("#titleInput").value);
- return {title:$("#titleInput").value.trim(),type,subject:subject||(state.subjects.includes(inferred)?inferred:"未分类"),date:$("#dateInput").value,start,end,description:$("#descriptionInput").value.trim(),importance:$("#importanceInput").value,completed:isStudy&&$("#completedInput").checked,notes:isStudy?$("#notesInput").value.trim():""};
+ return {title:$("#titleInput").value.trim(),type,subject:subject||(state.subjects.includes(inferred)?inferred:"未分类"),date:$("#dateInput").value,start,end,description:$("#descriptionInput").value.trim(),importance:$("#importanceInput").value,color:$("#colorInput").value,coverable:$("#coverableInput").checked,completed:isStudy&&$("#completedInput").checked,notes:isStudy?$("#notesInput").value.trim():""};
 }
 function submitEvent(ev){
  ev.preventDefault();let data;try{data=formEvent()}catch(err){return toast(err.message)}
@@ -350,7 +386,7 @@ function submitEvent(ev){
   else{
    const group=state.events.filter(e=>e.seriesId===old.seriesId&&(scope==="series"||e.date>=old.date));
    const dayShift=Math.round((parseDate(data.date)-parseDate(old.date))/86400000),startShift=minutes(data.start)-minutes(old.start);
-   group.forEach(e=>{e.title=data.title;e.type=data.type;e.subject=data.subject;e.description=data.description;e.importance=data.importance;e.start=clock(minutes(e.start)+startShift);e.end=clock(minutes(e.end)+startShift);if(scope==="future")e.date=addDays(e.date,dayShift)});
+    group.forEach(e=>{e.title=data.title;e.type=data.type;e.subject=data.subject;e.description=data.description;e.importance=data.importance;e.color=data.color;e.coverable=data.coverable;e.start=clock(minutes(e.start)+startShift);e.end=clock(minutes(e.end)+startShift);if(scope==="future")e.date=addDays(e.date,dayShift)});
   }
  }else{
   const base={id:uid(),seriesId:null,...data};state.events.push(base);
@@ -381,7 +417,7 @@ function generateReviews(){
  if(!confirm(`为“${e.title}”生成 ${intervals.map(x=>x+"天后").join("、")} 的复习块？`))return;
  snapshot();intervals.forEach((days,i)=>{
   const date=addDays(e.date,days),dur=e.importance==="high"?20:15,start=findSlot(date,dur);
-  state.events.push({id:uid(),seriesId:null,title:e.title.replace(/·[^·（）]+(?=（|$)/,"")+"·间隔复习"+(i+1)+(e.subject?`（${e.subject}）`:""),type:"study",subject:e.subject,date,start,end:clock(minutes(start)+dur),description:`来源：${e.date} ${e.title}\n先闭书完成一个最小例子或关键步骤，再核对。记录独立、提示后或未完成；连续两次独立通过后减少固定复习。`,importance:e.importance,completed:false,notes:""});
+  state.events.push({id:uid(),seriesId:null,title:e.title.replace(/·[^·（）]+(?=（|$)/,"")+"·间隔复习"+(i+1)+(e.subject?`（${e.subject}）`:""),type:"study",subject:e.subject,date,start,end:clock(minutes(start)+dur),description:`来源：${e.date} ${e.title}\n先闭书完成一个最小例子或关键步骤，再核对。记录独立、提示后或未完成；连续两次独立通过后减少固定复习。`,importance:e.importance,color:e.color||DEFAULT_EVENT_COLOR.study,coverable:!!e.coverable,completed:false,notes:""});
  });$("#eventDialog").close();save();toast("已生成间隔复习");
 }
 function findSlot(date,dur){
@@ -397,7 +433,7 @@ function renderGoals(){
  const goals=state.goals.filter(g=>g.week===weekStart);
  const currentWeek=monday(dateISO(new Date())),autoGoals=weekStart>=currentWeek?buildAutomaticGoals(weekEvents,weekSubjects):"";
  const manualGoals=goals.map(g=>`<div class="goal-card ${g.done?"done":""}"><input type="checkbox" data-goal="${g.id}" ${g.done?"checked":""}><div><h3>${escapeHtml(g.title)}</h3><small>${escapeHtml(g.subject||"未分类")} · ${g.minutes||0} 分钟</small></div><button data-delgoal="${g.id}" class="ghost">×</button></div>`).join("");
- $("#goalList").innerHTML=autoGoals+manualGoals||`<div class="empty">${weekStart<currentWeek?"该周没有保存目标清单；历史周不再补写。":"该周暂无学习时间块，添加计划后会自动生成目标。"}</div>`;
+ $("#goalList").innerHTML=autoGoals+manualGoals||`<div class="empty">${weekStart<currentWeek?"该周没有保存目标清单。":"该周暂无学习时间块，添加计划后会自动生成目标。"}</div>`;
  $$("[data-goal]").forEach(x=>x.onchange=()=>{snapshot();state.goals.find(g=>g.id===x.dataset.goal).done=x.checked;save()});
  $$("[data-delgoal]").forEach(x=>x.onclick=()=>{snapshot();state.goals=state.goals.filter(g=>g.id!==x.dataset.delgoal);save()});
  const by={};weekSubjects.forEach(s=>by[s]={p:0,d:0});weekEvents.forEach(e=>{const s=e.subject||"其他";by[s]||={p:0,d:0};by[s].p+=duration(e);if(e.completed)by[s].d+=actualDuration(e)});
@@ -464,6 +500,7 @@ function importJSON(file){
 function reset(){if(!confirm("确认清空当前浏览器中的全部计划？此操作无法直接恢复，请先导出备份。"))return;snapshot();state=defaultState();$("#settingsDialog").close();save();toast("已清空全部计划")}
 
 function bind(){
+ renderEventColorPicker();
  $$('dialog button[value="cancel"]').forEach(b=>b.onclick=()=>b.closest("dialog").close());
  $("#addEventSubjectForm").onsubmit=addEventSubject;
  $$(".tab").forEach(b=>b.onclick=()=>{view=b.dataset.view;renderAll()});
@@ -475,7 +512,7 @@ function bind(){
  $("#createBtn").onclick=()=>openEvent(null,{date:dateISO(new Date())});$("#eventForm").onsubmit=submitEvent;
  $("#deleteBtn").onclick=deleteEvent;$("#duplicateBtn").onclick=duplicateEvent;$("#reviewBtn").onclick=generateReviews;
  $("#repeatInput").onchange=toggleUntil;
- $("#typeInput").onchange=toggleRecordBox;
+ $("#typeInput").onchange=()=>{toggleRecordBox();if(!$("#eventId").value&&!colorTouched)selectEventColor(DEFAULT_EVENT_COLOR[$("#typeInput").value])};
  $("#subjectInput").onchange=chooseEventSubject;
  $("#searchInput").oninput=renderWeek;$("#subjectFilter").onchange=renderWeek;
  $$(".legend-panel input").forEach(x=>x.onchange=renderWeek);
