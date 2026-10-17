@@ -101,7 +101,7 @@ function selectEventColor(id,touched=false){
  $$("[data-event-color]").forEach(button=>{const selected=button.dataset.eventColor===valid;button.classList.toggle("selected",selected);button.setAttribute("aria-pressed",String(selected))});
 }
 
-function renderAll(){renderSubjects();renderNav();renderSidebarPosition();renderWeek();renderGoals();renderList();renderVisualization();renderManagedSubjects()}
+function renderAll(){renderSubjects();renderNav();renderSidebarPosition();renderWeek();renderGoals();renderList();renderSeries();renderVisualization();renderManagedSubjects()}
 function renderNav(){
  $$(".tab").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
  $$(".view").forEach(v=>v.classList.toggle("active",v.id===view+"View"));
@@ -582,6 +582,72 @@ function renderList(){
  $$("[data-row]").forEach(r=>r.ondblclick=()=>openEvent(state.events.find(e=>e.id===r.dataset.row)));
 }
 
+let managedGroups=[],editingManagedGroup=null;
+function collectManagedGroups(){
+ const bySeries=new Map();
+ state.events.forEach(e=>{
+  if(e.seriesId){
+   if(!bySeries.has(e.seriesId))bySeries.set(e.seriesId,[]);
+   bySeries.get(e.seriesId).push(e);
+  }else if(e.type==="class")bySeries.set(`single:${e.id}`,[e]);
+ });
+ return [...bySeries.values()].map(events=>events.sort((a,b)=>(a.date+a.start).localeCompare(b.date+b.start)))
+  .sort((a,b)=>(a[0].date+a[0].start).localeCompare(b[0].date+b[0].start));
+}
+function renderSeries(){
+ const filter=$("#seriesFilter").value,search=$("#seriesSearch").value.trim().toLowerCase();
+ managedGroups=collectManagedGroups().filter(events=>{
+  const isRepeated=!!events[0].seriesId,isClass=events.some(e=>e.type==="class");
+  return (filter==="all"||(filter==="repeat"?isRepeated:isClass))&&(!search||events.some(e=>`${e.title} ${e.subject||""} ${e.description||""}`.toLowerCase().includes(search)));
+ });
+ $("#seriesList").innerHTML=managedGroups.length?managedGroups.map((events,index)=>{
+  const first=events[0],last=events.at(-1),repeated=!!first.seriesId;
+  const dateLabel=repeated?`${first.date} 至 ${last.date} · ${events.length} 个时间块`:`${first.date} · 1 个时间块`;
+  return `<article class="series-card"><div class="series-card-main"><div class="series-card-title"><strong>${escapeHtml(first.title)}</strong><span class="status ${repeated?"":"neutral"}">${repeated?"重复":"单次课程"}</span></div><div class="series-card-meta">${escapeHtml(dateLabel)} · ${escapeHtml(first.start)}–${escapeHtml(first.end)} · ${escapeHtml(first.subject||"未分类")}</div>${first.description?`<p>${escapeHtml(first.description)}</p>`:""}</div><div class="series-card-actions"><button type="button" class="ghost" data-series-edit="${index}">修改${repeated?"全部":""}</button><button type="button" class="danger ghost" data-series-delete="${index}">删除${repeated?"全部":""}</button></div></article>`;
+ }).join(""):'<div class="empty">没有符合条件的固定课程或重复计划</div>';
+ $$('[data-series-edit]').forEach(button=>button.onclick=()=>openSeriesEditor(Number(button.dataset.seriesEdit)));
+ $$('[data-series-delete]').forEach(button=>button.onclick=()=>deleteManagedGroup(Number(button.dataset.seriesDelete)));
+}
+function openSeriesEditor(index){
+ const events=managedGroups[index];if(!events?.length)return;
+ const e=events[0];editingManagedGroup={seriesId:e.seriesId||null,id:e.id};
+ $("#seriesForm").reset();$("#seriesDialogTitle").textContent=e.seriesId?"修改整个重复计划":"修改固定课程";
+ $("#seriesDialogSubtitle").textContent=`将更新 ${events.length} 个时间块`;
+ $("#seriesTitle").value=e.title;$("#seriesType").value=e.type;
+ $("#seriesSubject").innerHTML=[...new Set([...state.subjects,e.subject,"未分类"].filter(Boolean))].sort().map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
+ $("#seriesSubject").value=e.subject||"未分类";
+ $("#seriesStart").value=e.start;$("#seriesEnd").value=e.end;
+ $("#seriesImportance").value=eventImportance(e);
+ $("#seriesColor").innerHTML=EVENT_COLORS.map(c=>`<option value="${c.id}">${c.name}</option>`).join("");
+ $("#seriesColor").value=eventColor(e).id;$("#seriesCoverable").checked=!!e.coverable;
+ $("#seriesDescription").value=e.description||"";
+ $("#seriesDialog").showModal();
+}
+function editingManagedEvents(){
+ if(!editingManagedGroup)return [];
+ return state.events.filter(e=>editingManagedGroup.seriesId?e.seriesId===editingManagedGroup.seriesId:e.id===editingManagedGroup.id);
+}
+function saveManagedGroup(ev){
+ ev.preventDefault();const events=editingManagedEvents();if(!events.length)return toast("这些时间块已不存在");
+ const start=$("#seriesStart").value,end=$("#seriesEnd").value;
+ if(!start||!end||minutes(end)<=minutes(start))return toast("结束时间必须晚于开始时间");
+ const title=$("#seriesTitle").value.trim(),subject=$("#seriesSubject").value;
+ if(!title||(!state.subjects.includes(subject)&&subject!=="未分类"))return toast("请填写标题并选择已有科目");
+ const data={title,type:$("#seriesType").value,subject,start,end,
+  importance:$("#seriesImportance").value,importanceCustomized:true,
+  color:$("#seriesColor").value,colorCustomized:true,
+  coverable:$("#seriesCoverable").checked,description:$("#seriesDescription").value.trim()};
+ snapshot();events.forEach(e=>{Object.assign(e,data);if(data.type!=="study")e.backlog=false});
+ editingManagedGroup=null;$("#seriesDialog").close();save();toast(`已更新 ${events.length} 个时间块`);
+}
+function deleteManagedGroup(index){
+ const events=managedGroups[index];if(!events?.length)return;
+ const first=events[0];
+ if(!confirm(`删除“${first.title}”的全部 ${events.length} 个时间块？此操作也会删除其中的完成记录。`))return;
+ const ids=new Set(events.map(e=>e.id));snapshot();state.events=state.events.filter(e=>!ids.has(e.id));
+ save();toast(`已删除 ${events.length} 个时间块`);
+}
+
 function renderVisualization(){
  const start=chartMode==="week"?monday(chartAnchor):monthStart(chartAnchor);
  const startDate=parseDate(start),days=chartMode==="week"?7:new Date(startDate.getFullYear(),startDate.getMonth()+1,0).getDate(),end=addDays(start,days-1);
@@ -651,6 +717,8 @@ function bind(){
  $("#goalWeekPicker").onchange=e=>{if(!e.target.value)return;weekStart=monday(e.target.value);rangeStart=weekStart;renderAll()};
  $("#weekReflection").onchange=()=>{snapshot();state.reflections[weekStart]=$("#weekReflection").value;save(false)};
  $("#listSearch").oninput=renderList;$("#listStatus").onchange=renderList;
+ $("#seriesSearch").oninput=renderSeries;$("#seriesFilter").onchange=renderSeries;
+ $("#seriesForm").onsubmit=saveManagedGroup;$("#seriesDialog").addEventListener("close",()=>{editingManagedGroup=null});
  $$('[data-chart-mode]').forEach(x=>x.onclick=()=>{chartMode=x.dataset.chartMode;localStorage.setItem(CHART_MODE_STORE,chartMode);renderVisualization()});
  $("#visualPrev").onclick=()=>{chartAnchor=chartMode==="week"?addDays(chartAnchor,-7):addMonths(chartAnchor,-1);renderVisualization()};
  $("#visualNext").onclick=()=>{chartAnchor=chartMode==="week"?addDays(chartAnchor,7):addMonths(chartAnchor,1);renderVisualization()};
