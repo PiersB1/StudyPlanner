@@ -14,6 +14,7 @@ const LAST_STORE="studyPlanner.public.cloudLastFingerprint";
 const ANON_STORE="studyPlanner.public.anonymousBackup";
 
 let api=null,user=null,profile=null,channel=null,syncReady=false,starting=false,saveTimer=null,queuedState=null;
+let uploadTail=Promise.resolve(),uploadsPending=0;
 let lastFingerprint="",pendingFingerprint="",lastSyncAt=null,choiceResolver=null,logoutRequested=false;
 let registerAvatarBlob=null,profileAvatarBlob=null,removeAvatarPending=false;
 const $=selector=>document.querySelector(selector);
@@ -134,20 +135,30 @@ function applyCloudState(data){
  api.replaceState(clone(data));
  const serialized=serialize(data);markSynced(serialized);
 }
-async function pushState(data,{quiet=false}={}){
+function pushState(data,options={}){
+ const payload=clone(data);
+ uploadsPending++;
+ const task=uploadTail.then(()=>uploadState(payload,options));
+ uploadTail=task.catch(()=>{});
+ return task.finally(()=>{uploadsPending--});
+}
+async function uploadState(data,{quiet=false}={}){
  if(!client||!user)return false;
  const payload=clone(data),serialized=serialize(payload),fp=fingerprint(serialized);
  pendingFingerprint=fp;setStatus("正在同步","syncing","本地数据已保存，正在上传云端");
  const {error}=await client.from(TABLE).upsert({user_id:user.id,data:payload},{onConflict:"user_id"});
- if(error){pendingFingerprint="";queuedState=payload;setStatus("同步失败","error",error.message);if(!quiet)api.toast("云端同步失败，本地数据仍已保存");return false}
- queuedState=null;markSynced(serialized);return true;
+ if(error){pendingFingerprint="";if(!queuedState)queuedState=payload;setStatus("同步失败","error",error.message);if(!quiet)api.toast("云端同步失败，本地数据仍已保存");return false}
+ if(queuedState&&fingerprint(serialize(queuedState))===fp)queuedState=null;
+ markSynced(serialized);
+ if(queuedState)setStatus("等待同步","syncing","较新的修改已保存在本地，等待上传");
+ return true;
 }
 function queueSave(data){
  if(!syncReady||!user)return;
  queuedState=clone(data);clearTimeout(saveTimer);
  if(!navigator.onLine){setStatus("离线，本地已保存","error","联网后可点击立即同步");return}
  setStatus("等待同步","syncing","修改已保存在本地");
- saveTimer=setTimeout(()=>pushState(queuedState),650);
+ saveTimer=setTimeout(()=>{saveTimer=null;flushSave()},650);
 }
 async function flushSave(){
  clearTimeout(saveTimer);saveTimer=null;
@@ -160,9 +171,13 @@ function startRealtime(){
  channel=client.channel(`planner-state-${user.id}`)
   .on("postgres_changes",{event:"*",schema:"public",table:TABLE,filter:`user_id=eq.${user.id}`},payload=>{
    if(!syncReady||!payload.new?.data)return;
-   const serialized=serialize(payload.new.data),fp=fingerprint(serialized);
-   if(fp===lastFingerprint||fp===pendingFingerprint)return;
-   clearTimeout(saveTimer);saveTimer=null;queuedState=null;
+   const local=api.getState(),serialized=serialize(payload.new.data),fp=fingerprint(serialized),localFp=fingerprint(serialize(local));
+   if(fp===lastFingerprint||fp===pendingFingerprint||fp===localFp)return;
+   if((Number(payload.new.data.updatedAt)||0)<(Number(local.updatedAt)||0)){
+    if(!queuedState&&!saveTimer)queueSave(local);
+    return;
+   }
+   if(queuedState||saveTimer||uploadsPending||localFp!==lastFingerprint)return;
    applyCloudState(payload.new.data);api.toast("已同步另一台设备的最新修改");
   })
   .on("postgres_changes",{event:"*",schema:"public",table:PROFILE_TABLE,filter:`user_id=eq.${user.id}`},payload=>{
@@ -188,6 +203,7 @@ async function reconcile(){
  if(!row)return pushState(local,{quiet:true});
  const remote=row.data,remoteSerialized=serialize(remote),remoteFp=fingerprint(remoteSerialized);
  if(localFp===remoteFp){markSynced(remoteSerialized);return true}
+ if(previousOwner===user.id&&(Number(local.updatedAt)||0)>(Number(remote.updatedAt)||0))return pushState(local,{quiet:true});
  if(previousOwner===user.id&&previousFp){
   if(localFp===previousFp){applyCloudState(remote);return true}
   if(remoteFp===previousFp)return pushState(local,{quiet:true});
@@ -268,7 +284,7 @@ async function logout(){
 }
 async function syncNow(){
  if(!user)return;$("#accountDialog").close();
- if(syncReady){await pushState(api.getState());api.toast("同步完成")}else await startSession();
+ if(syncReady){if(await pushState(api.getState()))api.toast("同步完成")}else await startSession();
 }
 function bind(){
  $("#accountBtn").onclick=()=>{if(user){renderProfile();setMessage($("#profileMessage"),"");$("#accountDialog").showModal()}else{setMessage($("#authMessage"),"");$("#authDialog").showModal()}};

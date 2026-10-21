@@ -41,13 +41,14 @@ const defaultState=()=>{
  const events=(window.SEED_EVENTS||[]).filter(e=>e.type!=="flex").map(e=>normalizeSubject({...e}));
  return {
  version:2,
+ updatedAt:0,
  events,
  goals:[],
  autoGoalEdits:[],
  reflections:{},
  settings:{targets:[120,120,120,120,120,120,120],dateTargets:{},warn:true}
 }};
-let state, weekStart=monday(dateISO(new Date())), rangeStart=weekStart, viewDays=Number(localStorage.getItem(VIEW_STORE))===3?3:7, todayFirst=localStorage.getItem(TODAY_FIRST_STORE)==="true", view="week", history=[], drag=null,colorTouched=false,importanceTouched=false;
+let state, weekStart=monday(dateISO(new Date())), rangeStart=weekStart, viewDays=Number(localStorage.getItem(VIEW_STORE))===3?3:7, todayFirst=localStorage.getItem(TODAY_FIRST_STORE)==="true", view="week", history=[], drag=null,colorTouched=false,importanceTouched=false,recordEditSnapshotted=false;
 let chartMode=localStorage.getItem(CHART_MODE_STORE)==="month"?"month":"week",chartAnchor=dateISO(new Date());
 let sidebarRight=localStorage.getItem(SIDEBAR_STORE)==="true";
 let backlogSort=["oldest","newest","schedule"].includes(localStorage.getItem(BACKLOG_SORT_STORE))?localStorage.getItem(BACKLOG_SORT_STORE):"oldest";
@@ -57,10 +58,11 @@ function load(){
  try{state=JSON.parse(localStorage.getItem(STORE))||defaultState()}catch{state=defaultState()}
  state.events=(state.events||[]).filter(e=>e.type!=="flex").map(normalizeSubject);
  state.version=2;
+ state.updatedAt=Number(state.updatedAt)||0;
  if(!state.settings)state.settings=defaultState().settings;
  state.settings.dateTargets ||= {};
  state.goals ||= []; state.reflections ||= {};
- save(false);
+ save(false,{touch:false});
 }
 function ensureSubjects(){
  if(!Array.isArray(state.subjects))state.subjects=[...new Set([...SUBJECTS,...state.events.map(e=>e.subject),...(state.goals||[]).map(g=>g.subject)].filter(s=>s&&s!=="未分类"))];
@@ -68,7 +70,7 @@ function ensureSubjects(){
  if(!Array.isArray(state.subjectDefaults))state.subjectDefaults=[];
  if(!Array.isArray(state.autoGoalEdits))state.autoGoalEdits=[];
 }
-function save(render=true){ensureSubjects();localStorage.setItem(STORE,JSON.stringify(state));window.StudyPlannerCloud?.queueSave(state);if(render)renderAll()}
+function save(render=true,{touch=true}={}){ensureSubjects();if(touch)state.updatedAt=Math.max(Date.now(),(Number(state.updatedAt)||0)+1);localStorage.setItem(STORE,JSON.stringify(state));window.StudyPlannerCloud?.queueSave(state);if(render)renderAll()}
 function snapshot(){history.push(JSON.stringify(state));if(history.length>30)history.shift();$("#undoBtn").disabled=false}
 function undo(){if(!history.length)return;state=JSON.parse(history.pop());$("#undoBtn").disabled=!history.length;save()}
 function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove("show"),2200)}
@@ -439,6 +441,7 @@ function warnCap(date){
 
 function openEvent(e,defaults={}){
  $("#eventForm").reset();$("#eventId").value=e?.id||"";
+ recordEditSnapshotted=false;$("#notesSaveHint").hidden=!e||e.type!=="study";
  $("#eventDialogTitle").textContent=e?"编辑时间块":"新建时间块";$("#eventMode").textContent=e?.seriesId?"重复计划中的一次":"时间块";
  $("#titleInput").value=e?.title||"";$("#typeInput").value=e?.type||"study";$("#subjectInput").value=e?.subject||"";
  previousSubjectSelection=$("#subjectInput").value;
@@ -450,6 +453,15 @@ function openEvent(e,defaults={}){
  $("#scopeWrap").hidden=!e?.seriesId;$("#scopeInput").value="one";toggleUntil();toggleRecordBox();$("#eventDialog").showModal();
 }
 function toggleRecordBox(){$("#recordBox").hidden=$("#typeInput").value!=="study"}
+function saveRecordFields(){
+ const id=$("#eventId").value,e=state.events.find(item=>item.id===id);
+ if(!e||e.type!=="study")return;
+ const notes=$("#notesInput").value.trim(),completed=$("#completedInput").checked;
+ if(e.notes===notes&&!!e.completed===completed)return;
+ if(!recordEditSnapshotted){snapshot();recordEditSnapshotted=true}
+ e.notes=notes;e.completed=completed;if(completed)e.backlog=false;
+ save(false);
+}
 function formEvent(){
  const start=$("#startInput").value,end=$("#endInput").value;if(minutes(end)<=minutes(start))throw Error("结束时间必须晚于开始时间");
  const type=$("#typeInput").value,isStudy=type==="study";
@@ -698,6 +710,8 @@ function bind(){
  $("#todayFirst").onchange=e=>{todayFirst=e.target.checked;localStorage.setItem(TODAY_FIRST_STORE,String(todayFirst));const today=dateISO(new Date());weekStart=monday(today);rangeStart=todayFirst?today:weekStart;renderAll()};
  $("#todayBtn").onclick=()=>{const today=dateISO(new Date());weekStart=monday(today);rangeStart=viewDays===3?today:weekStart;view="week";renderAll()};
  $("#createBtn").onclick=()=>openEvent(null,{date:dateISO(new Date())});$("#eventForm").onsubmit=submitEvent;
+ $("#notesInput").oninput=saveRecordFields;$("#completedInput").onchange=saveRecordFields;
+ $("#eventDialog").addEventListener("close",()=>{if(recordEditSnapshotted){recordEditSnapshotted=false;renderAll()}});
  $("#deleteBtn").onclick=deleteEvent;$("#duplicateBtn").onclick=duplicateEvent;$("#reviewBtn").onclick=generateReviews;
  $("#repeatInput").onchange=toggleUntil;
  $("#typeInput").onchange=()=>{toggleRecordBox();applyEventSubjectDefaults()};
@@ -743,6 +757,7 @@ function replaceStateFromCloud(data){
  state=JSON.parse(JSON.stringify(data));
  state.events=state.events.filter(e=>e.type!=="flex").map(normalizeSubject);
  state.version=2;
+ state.updatedAt=Number(state.updatedAt)||0;
  state.settings ||= defaultState().settings;
  state.settings.targets ||= [...defaultState().settings.targets];
  state.settings.dateTargets ||= {};
