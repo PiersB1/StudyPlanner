@@ -524,12 +524,12 @@ function renderGoals(){
  $("#goalWeekPicker").value=weekStart;
  const weekAllEvents=state.events.filter(e=>e.date>=weekStart&&e.date<=addDays(weekStart,6)),weekEvents=weekAllEvents.filter(countsStudy),weekSubjects=[...new Set(weekAllEvents.map(e=>e.subject).filter(Boolean))];
  const goals=state.goals.filter(g=>g.week===weekStart);
- const currentWeek=monday(dateISO(new Date())),autoGoals=weekStart>=currentWeek?buildAutomaticGoals(weekEvents):[];
+ const autoGoals=buildAutomaticGoals(weekEvents);
  const totalMinutes=autoGoals.reduce((n,g)=>n+g.minutes,0),blockCount=autoGoals.reduce((n,g)=>n+g.count,0),doneCount=autoGoals.reduce((n,g)=>n+g.doneCount,0);
  const overview=autoGoals.length?`<div class="goal-overview"><strong>完成 ${blockCount} 个学习时间块，共 ${formatMinutes(totalMinutes)}</strong><span>覆盖 ${autoGoals.length} 个科目；当前已完成 ${doneCount}/${blockCount} 项。</span></div>`:"";
  const pending=autoGoals.filter(g=>!g.done).map(automaticGoalCard).join("")+goals.filter(g=>!g.done).map(manualGoalCard).join("");
  const completed=autoGoals.filter(g=>g.done).map(automaticGoalCard).join("")+goals.filter(g=>g.done).map(manualGoalCard).join("");
- $("#goalList").innerHTML=overview+pending+completed||`<div class="empty">${weekStart<currentWeek?"该周没有保存目标清单。":"该周暂无学习目标。"}</div>`;
+ $("#goalList").innerHTML=overview+pending+completed||'<div class="empty">该周暂无学习目标。</div>';
  $$("[data-goal]").forEach(x=>x.onchange=()=>{snapshot();state.goals.find(g=>g.id===x.dataset.goal).done=x.checked;save()});
  $$("[data-delgoal]").forEach(x=>x.onclick=()=>{snapshot();state.goals=state.goals.filter(g=>g.id!==x.dataset.delgoal);save()});
  $$('[data-auto-goal]').forEach(card=>bindGoalEditor(card,()=>openGoalDialog("auto",{subject:card.dataset.autoGoal,week:weekStart})));
