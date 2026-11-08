@@ -103,7 +103,7 @@ function selectEventColor(id,touched=false){
  $$("[data-event-color]").forEach(button=>{const selected=button.dataset.eventColor===valid;button.classList.toggle("selected",selected);button.setAttribute("aria-pressed",String(selected))});
 }
 
-function renderAll(){renderSubjects();renderNav();renderSidebarPosition();renderWeek();renderGoals();renderList();renderSeries();renderVisualization();renderManagedSubjects()}
+function renderAll(){renderSubjects();renderNav();renderSidebarPosition();renderWeek();renderGoals();renderProgress();renderList();renderSeries();renderVisualization();renderManagedSubjects()}
 function renderNav(){
  $$(".tab").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
  $$(".view").forEach(v=>v.classList.toggle("active",v.id===view+"View"));
@@ -158,7 +158,7 @@ function openSubjectSettings(name){
  if(!state.subjects.includes(name))return;
  editingSubject=name;pendingSubjectChange=null;subjectColorTouched=false;subjectImportanceTouched=false;
  const defaults=subjectDefaults(name);
- $("#subjectNameInput").value=name;$("#subjectImportanceInput").value=defaults.importance||"normal";selectSubjectColor(defaults.color||"sky");
+ $("#subjectNameInput").value=name;$("#subjectImportanceInput").value=defaults.importance||"normal";$("#subjectProgressInput").checked=!!defaults.progressEnabled;selectSubjectColor(defaults.color||"sky");
  $("#subjectSettingsDialog").showModal();
 }
 function requestSubjectApply(ev){
@@ -166,7 +166,7 @@ function requestSubjectApply(ev){
  if(!editingSubject||!state.subjects.includes(editingSubject))return;
  if(!name||name==="未分类"||name==="__custom__"||(name!==editingSubject&&state.subjects.includes(name)))return toast("该科目已存在或名称不可用");
  const color=$("#subjectColorInput").value,importance=$("#subjectImportanceInput").value;
- pendingSubjectChange={oldName:editingSubject,name,color,importance,colorChanged:subjectColorTouched||color!==(defaults.color||"sky"),importanceChanged:subjectImportanceTouched||importance!==(defaults.importance||"normal")};
+ pendingSubjectChange={oldName:editingSubject,name,color,importance,progressEnabled:$("#subjectProgressInput").checked,colorChanged:subjectColorTouched||color!==(defaults.color||"sky"),importanceChanged:subjectImportanceTouched||importance!==(defaults.importance||"normal")};
  $("#applySubjectKeep").hidden=!(pendingSubjectChange.colorChanged||pendingSubjectChange.importanceChanged);
  $("#subjectApplyDialog").showModal();
 }
@@ -176,6 +176,7 @@ function applySubjectChange(keepPersonal){
  snapshot();const defaults={...subjectDefaults(change.oldName),name:change.name};
  if(change.colorChanged)defaults.color=change.color;
  if(change.importanceChanged)defaults.importance=change.importance;
+ defaults.progressEnabled=change.progressEnabled;
  state.subjectDefaults=state.subjectDefaults.filter(x=>x.name!==change.oldName);state.subjectDefaults.push(defaults);
  state.subjects=state.subjects.map(s=>s===change.oldName?change.name:s);
  state.events.forEach(e=>{
@@ -538,6 +539,19 @@ function renderGoals(){
  const stats=[...by].sort((a,b)=>b[1].p-a[1].p),maxPlanned=Math.max(1,...stats.map(([,v])=>v.p));
  $("#subjectStats").innerHTML=stats.map(([s,v])=>`<div class="stat-row"><div class="stat-head"><span>${escapeHtml(s)}</span><span>${v.d}/${v.p} 分钟</span></div><div class="meter stat-meter" style="width:${v.p/maxPlanned*100}%"><span style="width:${v.p?Math.min(100,v.d/v.p*100):0}%"></span></div></div>`).join("")||'<div class="empty">本周无学习计划</div>';
  $("#weekReflection").value=state.reflections[weekStart]||"";
+}
+function renderProgress(){
+ const today=dateISO(new Date());
+ const enabled=state.subjects.filter(subject=>subjectDefaults(subject).progressEnabled);
+ $("#progressList").innerHTML=enabled.map(subject=>{
+  const blocks=state.events.filter(e=>e.subject===subject&&e.type==="study");
+  const done=blocks.filter(e=>e.completed).length,total=blocks.length,remaining=blocks.filter(e=>!e.completed);
+  const percent=total?Math.round(done/total*100):0;
+  const lastDate=remaining.reduce((latest,e)=>e.date>latest?e.date:latest,"");
+  const estimate=!total?"暂无学习时间块":!remaining.length?"已完成全部已安排时间块":remaining.some(e=>e.backlog)?"有拖欠任务，暂无法预计完成日期":lastDate<today?"剩余任务的排期已过，暂无法预计完成日期":`按现有排期，预计 ${lastDate} 完成`;
+  const color=EVENT_COLORS.find(c=>c.id===subjectDefaults(subject).color)||EVENT_COLORS[0];
+  return `<article class="progress-card"><div class="progress-card-head"><h2>${escapeHtml(subject)}</h2><strong>${percent}%</strong></div><div class="progress-track" role="progressbar" aria-label="${escapeHtml(subject)}学习进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}" style="--progress-color:${color.border}"><span style="width:${percent}%"></span></div><p>已完成 ${done} / ${total} 个学习时间块</p><p>${escapeHtml(estimate)}</p></article>`;
+ }).join("")||'<div class="empty">尚未在科目设置中开启进度条。</div>';
 }
 function buildAutomaticGoals(events){
  const groups=new Map();
